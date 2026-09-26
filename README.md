@@ -22,3 +22,36 @@ flowchart LR
   GT -.->|registrar evento| AUD
 ```
 
+## Entidades del módulo de negocio
+
+```mermaid
+erDiagram
+    PROYECTO ||--o{ TAREA : contiene
+    PRIORIDAD ||--o{ TAREA : clasifica
+    TAREA ||--o{ COMENTARIO : tiene
+    PROYECTO {
+        Guid Id
+        string Nombre
+        Guid UsuarioCreadorId
+        DateTime FechaCreacion
+    }
+    TAREA {
+        Guid Id
+        string Titulo
+        Guid ProyectoId
+        Guid PrioridadId
+        Guid UsuarioAsignadoId
+        string Estado
+    }
+    PRIORIDAD {
+        Guid Id
+        string Nombre
+        int Nivel
+    }
+    COMENTARIO {
+        Guid Id
+        Guid TareaId
+        Guid UsuarioId
+        string Texto
+    }
+```
