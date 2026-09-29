@@ -1,5 +1,5 @@
 # GestorTareasP3
-Proyecto de Programación III
+Proyecto de Programación III — versión A del fogueo
 
 ## Arquitectura de componentes
 
