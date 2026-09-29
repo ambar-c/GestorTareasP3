@@ -1,6 +1,5 @@
 # GestorTareasP3
-Proyecto de Programación III — versión A del fogueo
-
+Proyecto de Programación III — fogueo: combina versión A y versión B
 ## Arquitectura de componentes
 
 ```mermaid
