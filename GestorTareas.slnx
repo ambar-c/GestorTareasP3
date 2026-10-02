@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/GestorTareas.Api/GestorTareas.Api.csproj" />
+    <Project Path="src/GestorTareas.ControlAcceso/GestorTareas.ControlAcceso.csproj" />
+    <Project Path="src/GestorTareas.Enviador/GestorTareas.Enviador.csproj" />
+    <Project Path="src/GestorTareas.Negocio/GestorTareas.Negocio.csproj" />
+    <Project Path="src/GestorTareas.Notificaciones/GestorTareas.Notificaciones.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/GestorTareas.Pruebas/GestorTareas.Pruebas.csproj" />
+  </Folder>
+</Solution>
