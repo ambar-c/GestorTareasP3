@@ -247,3 +247,55 @@ Los correos los envía el Enviador (`dotnet run --project src/GestorTareas.Envia
 | Correo mal formado (RD-07) | `Llamar Post "/api/activacion/reenviar" '{"correo":"esto-no-es-un-correo"}'` | `400` con «El correo no tiene un formato válido.» |
 
 Los enlaces de activación no aparecen en la consola de la API: el token viaja en la URL y se filtró de los logs (RD-08).
+
+## Sesión
+
+El inicio de sesión entrega un token que se envía en el encabezado `Authorization: Bearer <token>`. En la base solo se guarda el hash del token, nunca el token. La sesión dura 8 horas.
+
+Con la API corriendo, define esta función de ayuda en otra ventana de PowerShell (acepta un token opcional para los endpoints protegidos):
+
+```powershell
+$base = "http://localhost:5065"
+function LlamarSesion($metodo, $ruta, $cuerpo, $token) {
+  $p = @{ Uri = "$base$ruta"; Method = $metodo; UseBasicParsing = $true }
+  if ($cuerpo) { $p.ContentType = "application/json"; $p.Body = $cuerpo }
+  if ($token) { $p.Headers = @{ Authorization = "Bearer $token" } }
+  try {
+    $r = Invoke-WebRequest @p
+    "$($r.StatusCode) $($r.Content)"
+  } catch {
+    $resp = $_.Exception.Response
+    $texto = $_.ErrorDetails.Message
+    if (-not $texto -and $resp) { try { $texto = (New-Object System.IO.StreamReader($resp.GetResponseStream())).ReadToEnd() } catch {} }
+    "$([int]$resp.StatusCode) $texto"
+  }
+}
+```
+
+Necesitas una cuenta activa. Regístrala y actívala con el enlace del correo (sección anterior), o, solo para probar, actívala directo en SSMS:
+
+```sql
+USE GestorTareas;
+UPDATE Usuarios SET Activo = 1 WHERE Correo = 'sesion1@example.com';
+```
+
+### Cómo probar los criterios (RF-CA-03, RF-CA-07, RF-CA-15, RF-CA-18, RF-CA-19)
+
+Registra primero la cuenta: `LlamarSesion Post "/api/registro" '{"nombre":"Sesion Uno","correo":"sesion1@example.com","contrasena":"Clave1234"}'`
+
+| Criterio | Comando | Resultado esperado |
+| --- | --- | --- |
+| Login correcto (RF-CA-03) | `$token = (Invoke-RestMethod -Uri "$base/api/login" -Method Post -ContentType "application/json" -Body '{"correo":"sesion1@example.com","contrasena":"Clave1234"}').token` | Devuelve el token y el vencimiento; `$token.Length` es 43 |
+| Contraseña incorrecta (RF-CA-03) | `LlamarSesion Post "/api/login" '{"correo":"sesion1@example.com","contrasena":"Incorrecta1"}'` | `401` y "El correo o la contraseña son incorrectos." |
+| Correo inexistente (RF-CA-03) | `LlamarSesion Post "/api/login" '{"correo":"noexiste@example.com","contrasena":"Incorrecta1"}'` | `401` y el mismo mensaje exacto de la fila anterior |
+| Cuenta inactiva con la contraseña correcta (RF-CA-15) | Registra otra cuenta sin activarla y haz login con su contraseña correcta | `403` y "La cuenta no está activa." |
+| Cuenta inactiva con contraseña incorrecta (RF-CA-15) | El mismo correo con una contraseña equivocada | `401` y el mensaje genérico: no revela que la cuenta existe |
+| Correo vacío o mal formado (RD-07) | `LlamarSesion Post "/api/login" '{"correo":"","contrasena":""}'` y con `"correo":"mal-formado"` | `400` con mensajes de validación, sin trazas (RD-08) |
+| Consulta del autenticado (RF-CA-07) | `LlamarSesion Get "/api/yo" $null $token` | `200` con `id`, `nombre`, `correo` y `rol`; sin hash ni tokens |
+| Consulta sin sesión (RF-CA-07) | `LlamarSesion Get "/api/yo"` y `LlamarSesion Get "/api/yo" $null "token-inventado"` | `401` en las dos |
+| Cierre de sesión (RF-CA-18) | `LlamarSesion Post "/api/logout" $null $token` | `204` |
+| El token cerrado ya no sirve (RF-CA-18) | `LlamarSesion Get "/api/yo" $null $token` | `401`; en SSMS, `SELECT Revocada FROM Sesiones` muestra `1` para esa sesión |
+| Bloqueo tras 5 fallos (RF-CA-19) | `1..5 \| ForEach-Object { LlamarSesion Post "/api/login" '{"correo":"sesion1@example.com","contrasena":"Incorrecta1"}' }` | `401` cuatro veces y `423` en el quinto: "La cuenta está bloqueada temporalmente." |
+| El bloqueo rechaza aun la contraseña correcta (RF-CA-19) | Login con `Clave1234` justo después | `423`, durante 15 minutos |
+| El bloqueo persiste (RD-09) | Reinicia la API y repite el login | Sigue en `423`; en SSMS, `SELECT FallosInicioSesion, BloqueadoHasta FROM Usuarios` muestra `5` y la fecha de fin |
+| Login correcto reinicia el contador (RF-CA-19) | Para no esperar, ejecuta en SSMS `UPDATE Usuarios SET BloqueadoHasta = DATEADD(MINUTE, -1, SYSUTCDATETIME()) WHERE Correo = 'sesion1@example.com'` y haz login correcto | `200`; `FallosInicioSesion = 0` y `BloqueadoHasta = NULL` |
