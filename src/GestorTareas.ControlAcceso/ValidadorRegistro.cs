@@ -79,6 +79,27 @@ public static class ValidadorRegistro
         return new ResultadoValidacionRegistro(correoNormalizado, errores.AsReadOnly());
     }
 
+    public static ResultadoValidacionRegistro ValidarCorreo(string? correo)
+    {
+        var errores = new List<string>();
+        string correoNormalizado = correo?.Trim().ToLowerInvariant() ?? string.Empty;
+
+        if (string.IsNullOrWhiteSpace(correo))
+        {
+            errores.Add("El correo es obligatorio.");
+        }
+        else if (correoNormalizado.Length > 254)
+        {
+            errores.Add("El correo no debe superar los 254 caracteres.");
+        }
+        else if (!EsCorreoValido(correoNormalizado))
+        {
+            errores.Add("El correo no tiene un formato válido.");
+        }
+
+        return new ResultadoValidacionRegistro(correoNormalizado, errores.AsReadOnly());
+    }
+
     private static bool EsCorreoValido(string correo)
     {
         try
