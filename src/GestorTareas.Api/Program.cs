@@ -36,6 +36,7 @@ builder.Services.AddScoped<ServicioRegistro>();
 builder.Services.AddScoped<ServicioActivacion>();
 builder.Services.AddScoped<ServicioSesion>();
 builder.Services.AddScoped<ServicioAutenticacion>();
+builder.Services.AddScoped<InicializadorAdministrador>();
 builder.Services.AddAuthentication("Token")
     .AddScheme<AuthenticationSchemeOptions, ManejadorAutenticacionToken>("Token", _ => { });
 builder.Services.AddAuthorization(opciones =>
@@ -216,6 +217,33 @@ app.MapPost("/api/registro", async (
     };
 })
     .AllowAnonymous();
+
+string? adminNombre = Environment.GetEnvironmentVariable("ADMIN_NOMBRE");
+string? adminCorreo = Environment.GetEnvironmentVariable("ADMIN_CORREO");
+string? adminClave = Environment.GetEnvironmentVariable("ADMIN_CLAVE");
+
+if (string.IsNullOrWhiteSpace(adminNombre)
+    || string.IsNullOrWhiteSpace(adminCorreo)
+    || string.IsNullOrWhiteSpace(adminClave))
+{
+    app.Logger.LogWarning("No se creó el Administrador inicial: faltan variables ADMIN_*");
+}
+else
+{
+    using IServiceScope alcance = app.Services.CreateScope();
+    InicializadorAdministrador inicializador = alcance.ServiceProvider
+        .GetRequiredService<InicializadorAdministrador>();
+    ResultadoInicializacionAdministrador resultado = await inicializador.CrearAsync(
+        adminNombre,
+        adminCorreo,
+        adminClave);
+
+    if (resultado.Estado == EstadoInicializacionAdministrador.DatosInvalidos)
+    {
+        app.Logger.LogWarning(
+            "No se creó el Administrador inicial: la configuración no cumple la política requerida.");
+    }
+}
 
 app.Run();
 
