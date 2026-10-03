@@ -100,6 +100,27 @@ public static class ValidadorRegistro
         return new ResultadoValidacionRegistro(correoNormalizado, errores.AsReadOnly());
     }
 
+    public static ResultadoValidacionRegistro ValidarInicioSesion(
+        string? correo,
+        string? contrasena)
+    {
+        ResultadoValidacionRegistro validacionCorreo = ValidarCorreo(correo);
+        var errores = validacionCorreo.Errores.ToList();
+
+        if (string.IsNullOrEmpty(contrasena))
+        {
+            errores.Add("La contraseña es obligatoria.");
+        }
+        else if (contrasena.Length > 128)
+        {
+            errores.Add("La contraseña no debe superar los 128 caracteres.");
+        }
+
+        return new ResultadoValidacionRegistro(
+            validacionCorreo.CorreoNormalizado,
+            errores.AsReadOnly());
+    }
+
     private static bool EsCorreoValido(string correo)
     {
         try
