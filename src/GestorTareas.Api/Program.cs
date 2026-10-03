@@ -1,5 +1,8 @@
+using System.Security.Claims;
+using GestorTareas.Api;
 using GestorTareas.ControlAcceso;
 using GestorTareas.Notificaciones;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 
@@ -33,6 +36,15 @@ builder.Services.AddScoped<ServicioRegistro>();
 builder.Services.AddScoped<ServicioActivacion>();
 builder.Services.AddScoped<ServicioSesion>();
 builder.Services.AddScoped<ServicioAutenticacion>();
+builder.Services.AddAuthentication("Token")
+    .AddScheme<AuthenticationSchemeOptions, ManejadorAutenticacionToken>("Token", _ => { });
+builder.Services.AddAuthorization(opciones =>
+{
+    opciones.AddPolicy(Politicas.Autenticado, politica => politica.RequireAuthenticatedUser());
+    opciones.AddPolicy(Politicas.Administrador, politica => politica
+        .RequireAuthenticatedUser()
+        .RequireRole("Administrador"));
+});
 
 var app = builder.Build();
 
@@ -60,7 +72,11 @@ app.UseExceptionHandler(manejador =>
     });
 });
 
-app.MapGet("/salud", () => "OK");
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.MapGet("/salud", () => "OK")
+    .AllowAnonymous();
 
 app.MapPost("/api/login", async (
     SolicitudInicioSesion? solicitud,
@@ -91,31 +107,29 @@ app.MapPost("/api/login", async (
             new { errores = resultado.Errores }, statusCode: StatusCodes.Status403Forbidden),
         _ => Results.StatusCode(StatusCodes.Status500InternalServerError)
     };
-});
+})
+    .AllowAnonymous();
 
-app.MapGet("/api/yo", async (
-    HttpRequest solicitud,
-    ServicioSesion servicioSesion) =>
+app.MapGet("/api/yo", (ClaimsPrincipal usuario) =>
 {
-    Usuario? usuario = await servicioSesion.ObtenerUsuarioActualAsync(ObtenerToken(solicitud));
-    return usuario is null
-        ? Results.Unauthorized()
-        : Results.Ok(new
-        {
-            id = usuario.Id,
-            nombre = usuario.Nombre,
-            correo = usuario.Correo,
-            rol = usuario.Rol.ToString()
-        });
-});
+    return Results.Ok(new
+    {
+        id = Guid.Parse(usuario.FindFirstValue(ClaimTypes.NameIdentifier)!),
+        nombre = usuario.FindFirstValue(ClaimTypes.Name)!,
+        correo = usuario.FindFirstValue(ClaimTypes.Email)!,
+        rol = usuario.FindFirstValue(ClaimTypes.Role)!
+    });
+})
+    .RequireAuthorization(Politicas.Autenticado);
 
 app.MapPost("/api/logout", async (
     HttpRequest solicitud,
-    ServicioAutenticacion servicioAutenticacion) =>
+    ServicioSesion servicioSesion) =>
 {
-    bool revocada = await servicioAutenticacion.CerrarSesionAsync(ObtenerToken(solicitud));
+    bool revocada = await servicioSesion.RevocarAsync(TokenHttp.Obtener(solicitud));
     return revocada ? Results.NoContent() : Results.Unauthorized();
-});
+})
+    .RequireAuthorization(Politicas.Autenticado);
 
 app.MapGet("/api/activar", async (
     string? token,
@@ -134,7 +148,8 @@ app.MapGet("/api/activar", async (
             new { errores = new[] { "Ocurrió un error inesperado. Inténtalo de nuevo." } },
             statusCode: StatusCodes.Status500InternalServerError)
     };
-});
+})
+    .AllowAnonymous();
 
 app.MapPost("/api/activacion/reenviar", async (
     SolicitudReenvio? solicitud,
@@ -161,7 +176,8 @@ app.MapPost("/api/activacion/reenviar", async (
             new { errores = new[] { "Ocurrió un error inesperado. Inténtalo de nuevo." } },
             statusCode: StatusCodes.Status500InternalServerError)
     };
-});
+})
+    .AllowAnonymous();
 
 app.MapPost("/api/registro", async (
     SolicitudRegistro? solicitud,
@@ -198,17 +214,10 @@ app.MapPost("/api/registro", async (
             new { errores = new[] { "Ocurrió un error inesperado. Inténtalo de nuevo." } },
             statusCode: StatusCodes.Status500InternalServerError)
     };
-});
+})
+    .AllowAnonymous();
 
 app.Run();
-
-static string? ObtenerToken(HttpRequest solicitud)
-{
-    return solicitud.Headers.Authorization.ToString() is { Length: > 7 } valor
-        && valor.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
-        ? valor[7..].Trim()
-        : null;
-}
 
 public sealed record SolicitudRegistro(
     string? Nombre,
