@@ -32,6 +32,11 @@ public class ContextoControlAcceso(DbContextOptions<ContextoControlAcceso> opcio
             entidad.Property(usuario => usuario.Sal)
                 .IsRequired();
 
+            entidad.Property(usuario => usuario.HashTokenActivacion)
+                .HasMaxLength(32);
+
+            entidad.HasIndex(usuario => usuario.HashTokenActivacion);
+
             entidad.Property(usuario => usuario.Rol)
                 .HasConversion<int>()
                 .IsRequired();
