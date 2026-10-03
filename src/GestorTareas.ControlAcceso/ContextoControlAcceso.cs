@@ -7,6 +7,8 @@ public class ContextoControlAcceso(DbContextOptions<ContextoControlAcceso> opcio
 {
     public DbSet<Usuario> Usuarios => Set<Usuario>();
 
+    public DbSet<Sesion> Sesiones => Set<Sesion>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<Usuario>(entidad =>
@@ -46,6 +48,34 @@ public class ContextoControlAcceso(DbContextOptions<ContextoControlAcceso> opcio
 
             entidad.Property(usuario => usuario.FechaCreacion)
                 .IsRequired();
+
+            entidad.Property(usuario => usuario.FallosInicioSesion)
+                .IsRequired();
+        });
+
+        modelBuilder.Entity<Sesion>(entidad =>
+        {
+            entidad.ToTable("Sesiones");
+            entidad.HasKey(sesion => sesion.Id);
+
+            entidad.Property(sesion => sesion.HashToken)
+                .IsRequired()
+                .HasMaxLength(32);
+
+            entidad.HasIndex(sesion => sesion.HashToken)
+                .IsUnique();
+
+            entidad.Property(sesion => sesion.FechaEmision)
+                .IsRequired();
+            entidad.Property(sesion => sesion.FechaVencimiento)
+                .IsRequired();
+            entidad.Property(sesion => sesion.Revocada)
+                .IsRequired();
+
+            entidad.HasOne(sesion => sesion.Usuario)
+                .WithMany()
+                .HasForeignKey(sesion => sesion.UsuarioId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

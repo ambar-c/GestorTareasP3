@@ -20,5 +20,9 @@ public class Usuario
 
     public bool Activo { get; set; } = false;
 
+    public int FallosInicioSesion { get; set; }
+
+    public DateTime? BloqueadoHasta { get; set; }
+
     public DateTime FechaCreacion { get; set; } = DateTime.UtcNow;
 }
