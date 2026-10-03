@@ -12,6 +12,10 @@ public class Usuario
 
     public byte[] Sal { get; set; } = [];
 
+    public byte[]? HashTokenActivacion { get; set; }
+
+    public DateTime? VencimientoActivacion { get; set; }
+
     public Rol Rol { get; set; } = Rol.Estandar;
 
     public bool Activo { get; set; } = false;
