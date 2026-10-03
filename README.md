@@ -1,5 +1,5 @@
 # GestorTareasP3
-Proyecto de Programación III — fogueo: combina versión A y versión B
+Gestor de tareas por proyecto: organiza las tareas por proyecto y prioridad, con vista de progreso. Proyecto de Programación III.
 ## Arquitectura de componentes
 
 ```mermaid
