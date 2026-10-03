@@ -1,12 +1,15 @@
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using GestorTareas.Notificaciones;
 
 namespace GestorTareas.ControlAcceso;
 
 public sealed class ServicioRegistro(
     ContextoControlAcceso contexto,
-    ILogger<ServicioRegistro> logger)
+    ILogger<ServicioRegistro> logger,
+    IColaCorreos colaCorreos,
+    OpcionesActivacion opcionesActivacion)
 {
     private const string MensajeCorreoDuplicado = "Ya existe una cuenta con ese correo.";
     private const string MensajeErrorInterno = "No se pudo completar el registro. Inténtalo de nuevo.";
@@ -39,6 +42,7 @@ public sealed class ServicioRegistro(
             }
 
             (byte[] sal, byte[] hash) = HasheadorContrasena.Hashear(contrasena!);
+            (string token, byte[] hashToken) = GeneradorTokenActivacion.Generar();
             var usuario = new Usuario
             {
                 Id = Guid.NewGuid(),
@@ -48,11 +52,26 @@ public sealed class ServicioRegistro(
                 Sal = sal,
                 Rol = Rol.Estandar,
                 Activo = false,
-                FechaCreacion = DateTime.UtcNow
+                FechaCreacion = DateTime.UtcNow,
+                HashTokenActivacion = hashToken,
+                VencimientoActivacion = DateTime.UtcNow.AddHours(opcionesActivacion.HorasVigencia)
             };
 
             contexto.Usuarios.Add(usuario);
             await contexto.SaveChangesAsync();
+
+            try
+            {
+                (string asunto, string cuerpo) = PlantillaCorreoActivacion.Construir(
+                    usuario.Nombre,
+                    opcionesActivacion.UrlBase,
+                    token);
+                await colaCorreos.EncolarAsync(usuario.Correo, asunto, cuerpo);
+            }
+            catch (Exception excepcion)
+            {
+                logger.LogError(excepcion, "No se pudo encolar el correo de activación.");
+            }
 
             return new ResultadoRegistro(
                 EstadoRegistro.Creado,
