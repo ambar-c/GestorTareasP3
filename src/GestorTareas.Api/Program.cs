@@ -31,6 +31,8 @@ if (string.IsNullOrWhiteSpace(urlBase))
 builder.Services.AddSingleton(new OpcionesActivacion(urlBase));
 builder.Services.AddScoped<ServicioRegistro>();
 builder.Services.AddScoped<ServicioActivacion>();
+builder.Services.AddScoped<ServicioSesion>();
+builder.Services.AddScoped<ServicioAutenticacion>();
 
 var app = builder.Build();
 
@@ -59,6 +61,61 @@ app.UseExceptionHandler(manejador =>
 });
 
 app.MapGet("/salud", () => "OK");
+
+app.MapPost("/api/login", async (
+    SolicitudInicioSesion? solicitud,
+    ServicioAutenticacion servicioAutenticacion) =>
+{
+    if (solicitud is null)
+    {
+        return Results.BadRequest(new { errores = new[] { "Los datos de inicio de sesión son obligatorios." } });
+    }
+
+    ResultadoInicioSesion resultado = await servicioAutenticacion.IniciarSesionAsync(
+        solicitud.Correo,
+        solicitud.Contrasena);
+
+    return resultado.Estado switch
+    {
+        EstadoInicioSesion.Exitoso => Results.Ok(new
+        {
+            token = resultado.Token,
+            vencimiento = resultado.Vencimiento
+        }),
+        EstadoInicioSesion.DatosInvalidos => Results.BadRequest(new { errores = resultado.Errores }),
+        EstadoInicioSesion.CredencialesInvalidas => Results.Json(
+            new { errores = resultado.Errores }, statusCode: StatusCodes.Status401Unauthorized),
+        EstadoInicioSesion.CuentaBloqueada => Results.Json(
+            new { errores = resultado.Errores }, statusCode: StatusCodes.Status423Locked),
+        EstadoInicioSesion.CuentaInactiva => Results.Json(
+            new { errores = resultado.Errores }, statusCode: StatusCodes.Status403Forbidden),
+        _ => Results.StatusCode(StatusCodes.Status500InternalServerError)
+    };
+});
+
+app.MapGet("/api/yo", async (
+    HttpRequest solicitud,
+    ServicioSesion servicioSesion) =>
+{
+    Usuario? usuario = await servicioSesion.ObtenerUsuarioActualAsync(ObtenerToken(solicitud));
+    return usuario is null
+        ? Results.Unauthorized()
+        : Results.Ok(new
+        {
+            id = usuario.Id,
+            nombre = usuario.Nombre,
+            correo = usuario.Correo,
+            rol = usuario.Rol.ToString()
+        });
+});
+
+app.MapPost("/api/logout", async (
+    HttpRequest solicitud,
+    ServicioAutenticacion servicioAutenticacion) =>
+{
+    bool revocada = await servicioAutenticacion.CerrarSesionAsync(ObtenerToken(solicitud));
+    return revocada ? Results.NoContent() : Results.Unauthorized();
+});
 
 app.MapGet("/api/activar", async (
     string? token,
@@ -145,9 +202,19 @@ app.MapPost("/api/registro", async (
 
 app.Run();
 
+static string? ObtenerToken(HttpRequest solicitud)
+{
+    return solicitud.Headers.Authorization.ToString() is { Length: > 7 } valor
+        && valor.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
+        ? valor[7..].Trim()
+        : null;
+}
+
 public sealed record SolicitudRegistro(
     string? Nombre,
     string? Correo,
     string? Contrasena);
 
 public sealed record SolicitudReenvio(string? Correo);
+
+public sealed record SolicitudInicioSesion(string? Correo, string? Contrasena);
