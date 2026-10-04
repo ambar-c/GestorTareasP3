@@ -20,6 +20,8 @@ public class Usuario
 
     public bool Activo { get; set; } = false;
 
+    public bool Desactivado { get; set; } = false;
+
     public int FallosInicioSesion { get; set; }
 
     public DateTime? BloqueadoHasta { get; set; }

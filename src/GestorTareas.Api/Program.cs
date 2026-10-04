@@ -1,5 +1,8 @@
+using System.Security.Claims;
+using GestorTareas.Api;
 using GestorTareas.ControlAcceso;
 using GestorTareas.Notificaciones;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 
@@ -33,6 +36,17 @@ builder.Services.AddScoped<ServicioRegistro>();
 builder.Services.AddScoped<ServicioActivacion>();
 builder.Services.AddScoped<ServicioSesion>();
 builder.Services.AddScoped<ServicioAutenticacion>();
+builder.Services.AddScoped<InicializadorAdministrador>();
+builder.Services.AddScoped<ServicioUsuarios>();
+builder.Services.AddAuthentication("Token")
+    .AddScheme<AuthenticationSchemeOptions, ManejadorAutenticacionToken>("Token", _ => { });
+builder.Services.AddAuthorization(opciones =>
+{
+    opciones.AddPolicy(Politicas.Autenticado, politica => politica.RequireAuthenticatedUser());
+    opciones.AddPolicy(Politicas.Administrador, politica => politica
+        .RequireAuthenticatedUser()
+        .RequireRole("Administrador"));
+});
 
 var app = builder.Build();
 
@@ -60,7 +74,11 @@ app.UseExceptionHandler(manejador =>
     });
 });
 
-app.MapGet("/salud", () => "OK");
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.MapGet("/salud", () => "OK")
+    .AllowAnonymous();
 
 app.MapPost("/api/login", async (
     SolicitudInicioSesion? solicitud,
@@ -89,33 +107,33 @@ app.MapPost("/api/login", async (
             new { errores = resultado.Errores }, statusCode: StatusCodes.Status423Locked),
         EstadoInicioSesion.CuentaInactiva => Results.Json(
             new { errores = resultado.Errores }, statusCode: StatusCodes.Status403Forbidden),
+        EstadoInicioSesion.CuentaDesactivada => Results.Json(
+            new { errores = resultado.Errores }, statusCode: StatusCodes.Status403Forbidden),
         _ => Results.StatusCode(StatusCodes.Status500InternalServerError)
     };
-});
+})
+    .AllowAnonymous();
 
-app.MapGet("/api/yo", async (
-    HttpRequest solicitud,
-    ServicioSesion servicioSesion) =>
+app.MapGet("/api/yo", (ClaimsPrincipal usuario) =>
 {
-    Usuario? usuario = await servicioSesion.ObtenerUsuarioActualAsync(ObtenerToken(solicitud));
-    return usuario is null
-        ? Results.Unauthorized()
-        : Results.Ok(new
-        {
-            id = usuario.Id,
-            nombre = usuario.Nombre,
-            correo = usuario.Correo,
-            rol = usuario.Rol.ToString()
-        });
-});
+    return Results.Ok(new
+    {
+        id = Guid.Parse(usuario.FindFirstValue(ClaimTypes.NameIdentifier)!),
+        nombre = usuario.FindFirstValue(ClaimTypes.Name)!,
+        correo = usuario.FindFirstValue(ClaimTypes.Email)!,
+        rol = usuario.FindFirstValue(ClaimTypes.Role)!
+    });
+})
+    .RequireAuthorization(Politicas.Autenticado);
 
 app.MapPost("/api/logout", async (
     HttpRequest solicitud,
-    ServicioAutenticacion servicioAutenticacion) =>
+    ServicioSesion servicioSesion) =>
 {
-    bool revocada = await servicioAutenticacion.CerrarSesionAsync(ObtenerToken(solicitud));
+    bool revocada = await servicioSesion.RevocarAsync(TokenHttp.Obtener(solicitud));
     return revocada ? Results.NoContent() : Results.Unauthorized();
-});
+})
+    .RequireAuthorization(Politicas.Autenticado);
 
 app.MapGet("/api/activar", async (
     string? token,
@@ -134,7 +152,8 @@ app.MapGet("/api/activar", async (
             new { errores = new[] { "Ocurrió un error inesperado. Inténtalo de nuevo." } },
             statusCode: StatusCodes.Status500InternalServerError)
     };
-});
+})
+    .AllowAnonymous();
 
 app.MapPost("/api/activacion/reenviar", async (
     SolicitudReenvio? solicitud,
@@ -161,7 +180,8 @@ app.MapPost("/api/activacion/reenviar", async (
             new { errores = new[] { "Ocurrió un error inesperado. Inténtalo de nuevo." } },
             statusCode: StatusCodes.Status500InternalServerError)
     };
-});
+})
+    .AllowAnonymous();
 
 app.MapPost("/api/registro", async (
     SolicitudRegistro? solicitud,
@@ -198,17 +218,179 @@ app.MapPost("/api/registro", async (
             new { errores = new[] { "Ocurrió un error inesperado. Inténtalo de nuevo." } },
             statusCode: StatusCodes.Status500InternalServerError)
     };
-});
+})
+    .AllowAnonymous();
+
+app.MapPut("/api/usuarios/{id}/rol", async (
+    string id,
+    SolicitudCambioRol? solicitud,
+    ClaimsPrincipal administrador,
+    ServicioUsuarios servicioUsuarios) =>
+{
+    if (!Guid.TryParse(id, out Guid idUsuario))
+    {
+        return Results.BadRequest(new { error = "El identificador del usuario no es válido." });
+    }
+
+    if (solicitud is null || string.IsNullOrWhiteSpace(solicitud.Rol))
+    {
+        return Results.BadRequest(new { error = "El cuerpo y el rol son obligatorios." });
+    }
+
+    Rol nuevoRol = solicitud.Rol switch
+    {
+        "Administrador" => Rol.Administrador,
+        "Estandar" => Rol.Estandar,
+        _ => (Rol)(-1)
+    };
+
+    if (!Enum.IsDefined(nuevoRol))
+    {
+        return Results.BadRequest(new { error = "El rol no es válido." });
+    }
+
+    if (!Guid.TryParse(administrador.FindFirstValue(ClaimTypes.NameIdentifier), out Guid idAdministrador))
+    {
+        return Results.BadRequest(new { error = "La identidad del Administrador no es válida." });
+    }
+
+    ResultadoCambioRol resultado = await servicioUsuarios.CambiarRolAsync(
+        idAdministrador,
+        idUsuario,
+        nuevoRol);
+
+    return resultado.Estado switch
+    {
+        EstadoCambioRol.UsuarioNoEncontrado => Results.NotFound(new { error = resultado.Motivo }),
+        EstadoCambioRol.MismoUsuario => Results.BadRequest(new { error = resultado.Motivo }),
+        EstadoCambioRol.Exitoso => Results.Ok(new
+        {
+            id = resultado.Usuario!.Id,
+            nombre = resultado.Usuario.Nombre,
+            correo = resultado.Usuario.Correo,
+            rol = resultado.Usuario.Rol.ToString()
+        }),
+        _ => Results.BadRequest(new { error = "No se pudo cambiar el rol." })
+    };
+})
+    .RequireAuthorization(Politicas.Administrador);
+
+app.MapGet("/api/usuarios", async (ServicioUsuarios servicioUsuarios) =>
+{
+    List<UsuarioResumen> usuarios = await servicioUsuarios.ListarAsync();
+    return Results.Ok(usuarios.Select(usuario => new
+    {
+        id = usuario.Id,
+        nombre = usuario.Nombre,
+        correo = usuario.Correo,
+        rol = usuario.Rol.ToString(),
+        activo = usuario.Activo,
+        desactivado = usuario.Desactivado
+    }));
+})
+    .RequireAuthorization(Politicas.Administrador);
+
+app.MapPost("/api/usuarios/{id}/desactivar", async (
+    string id,
+    ClaimsPrincipal administrador,
+    ServicioUsuarios servicioUsuarios) =>
+{
+    if (!Guid.TryParse(id, out Guid idUsuario))
+    {
+        return Results.BadRequest(new { error = "El identificador del usuario no es válido." });
+    }
+
+    if (!Guid.TryParse(administrador.FindFirstValue(ClaimTypes.NameIdentifier), out Guid idAdministrador))
+    {
+        return Results.BadRequest(new { error = "La identidad del Administrador no es válida." });
+    }
+
+    ResultadoCambioEstadoUsuario resultado = await servicioUsuarios.DesactivarAsync(
+        idAdministrador,
+        idUsuario);
+
+    return resultado.Estado switch
+    {
+        EstadoCambioEstadoUsuario.UsuarioNoEncontrado => Results.NotFound(new { error = resultado.Motivo }),
+        EstadoCambioEstadoUsuario.MismoUsuario => Results.BadRequest(new { error = resultado.Motivo }),
+        EstadoCambioEstadoUsuario.Exitoso => Results.Ok(new
+        {
+            id = resultado.Usuario!.Id,
+            nombre = resultado.Usuario.Nombre,
+            correo = resultado.Usuario.Correo,
+            rol = resultado.Usuario.Rol.ToString(),
+            activo = resultado.Usuario.Activo,
+            desactivado = resultado.Usuario.Desactivado
+        }),
+        _ => Results.BadRequest(new { error = "No se pudo desactivar el usuario." })
+    };
+})
+    .RequireAuthorization(Politicas.Administrador);
+
+app.MapPost("/api/usuarios/{id}/reactivar", async (
+    string id,
+    ClaimsPrincipal administrador,
+    ServicioUsuarios servicioUsuarios) =>
+{
+    if (!Guid.TryParse(id, out Guid idUsuario))
+    {
+        return Results.BadRequest(new { error = "El identificador del usuario no es válido." });
+    }
+
+    if (!Guid.TryParse(administrador.FindFirstValue(ClaimTypes.NameIdentifier), out Guid idAdministrador))
+    {
+        return Results.BadRequest(new { error = "La identidad del Administrador no es válida." });
+    }
+
+    ResultadoCambioEstadoUsuario resultado = await servicioUsuarios.ReactivarAsync(
+        idAdministrador,
+        idUsuario);
+
+    return resultado.Estado switch
+    {
+        EstadoCambioEstadoUsuario.UsuarioNoEncontrado => Results.NotFound(new { error = resultado.Motivo }),
+        EstadoCambioEstadoUsuario.Exitoso => Results.Ok(new
+        {
+            id = resultado.Usuario!.Id,
+            nombre = resultado.Usuario.Nombre,
+            correo = resultado.Usuario.Correo,
+            rol = resultado.Usuario.Rol.ToString(),
+            activo = resultado.Usuario.Activo,
+            desactivado = resultado.Usuario.Desactivado
+        }),
+        _ => Results.BadRequest(new { error = "No se pudo reactivar el usuario." })
+    };
+})
+    .RequireAuthorization(Politicas.Administrador);
+
+string? adminNombre = Environment.GetEnvironmentVariable("ADMIN_NOMBRE");
+string? adminCorreo = Environment.GetEnvironmentVariable("ADMIN_CORREO");
+string? adminClave = Environment.GetEnvironmentVariable("ADMIN_CLAVE");
+
+if (string.IsNullOrWhiteSpace(adminNombre)
+    || string.IsNullOrWhiteSpace(adminCorreo)
+    || string.IsNullOrWhiteSpace(adminClave))
+{
+    app.Logger.LogWarning("No se creó el Administrador inicial: faltan variables ADMIN_*");
+}
+else
+{
+    using IServiceScope alcance = app.Services.CreateScope();
+    InicializadorAdministrador inicializador = alcance.ServiceProvider
+        .GetRequiredService<InicializadorAdministrador>();
+    ResultadoInicializacionAdministrador resultado = await inicializador.CrearAsync(
+        adminNombre,
+        adminCorreo,
+        adminClave);
+
+    if (resultado.Estado == EstadoInicializacionAdministrador.DatosInvalidos)
+    {
+        app.Logger.LogWarning(
+            "No se creó el Administrador inicial: la configuración no cumple la política requerida.");
+    }
+}
 
 app.Run();
-
-static string? ObtenerToken(HttpRequest solicitud)
-{
-    return solicitud.Headers.Authorization.ToString() is { Length: > 7 } valor
-        && valor.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
-        ? valor[7..].Trim()
-        : null;
-}
 
 public sealed record SolicitudRegistro(
     string? Nombre,
@@ -218,3 +400,5 @@ public sealed record SolicitudRegistro(
 public sealed record SolicitudReenvio(string? Correo);
 
 public sealed record SolicitudInicioSesion(string? Correo, string? Contrasena);
+
+public sealed record SolicitudCambioRol(string? Rol);

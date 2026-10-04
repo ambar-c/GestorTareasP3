@@ -91,6 +91,9 @@ El archivo `.env` está en `.gitignore` y nunca se sube al repositorio.
 | `SMTP_REMITENTE` | Dirección que figura como remitente. Con Gmail, la misma cuenta de `SMTP_USUARIO`. |
 | `SMTP_NOMBRE_REMITENTE` | Nombre que ve el destinatario en su bandeja, por ejemplo `Gestor de Tareas`. |
 | `APP_URL_BASE` | Dirección base de la API, usada para armar el enlace de activación del correo. En local: `http://localhost:5065`. |
+| `ADMIN_NOMBRE` | Nombre del Administrador inicial. Se crea al arrancar la API si no existe un usuario con el correo indicado. |
+| `ADMIN_CORREO` | Correo del Administrador inicial. Si ya existe un usuario con este correo, no se modifica. |
+| `ADMIN_CLAVE` | Contraseña del Administrador inicial. Debe cumplir la política de contraseña de RF-CA-14. |
 
 .NET no lee el archivo `.env` por sí solo. En cada ventana de PowerShell nueva, antes de aplicar migraciones o ejecutar la API, carga las variables con:
 
@@ -299,3 +302,160 @@ Registra primero la cuenta: `LlamarSesion Post "/api/registro" '{"nombre":"Sesio
 | El bloqueo rechaza aun la contraseña correcta (RF-CA-19) | Login con `Clave1234` justo después | `423`, durante 15 minutos |
 | El bloqueo persiste (RD-09) | Reinicia la API y repite el login | Sigue en `423`; en SSMS, `SELECT FallosInicioSesion, BloqueadoHasta FROM Usuarios` muestra `5` y la fecha de fin |
 | Login correcto reinicia el contador (RF-CA-19) | Para no esperar, ejecuta en SSMS `UPDATE Usuarios SET BloqueadoHasta = DATEADD(MINUTE, -1, SYSUTCDATETIME()) WHERE Correo = 'sesion1@example.com'` y haz login correcto | `200`; `FallosInicioSesion = 0` y `BloqueadoHasta = NULL` |
+
+## Roles y administración
+
+La Fase 4 incorpora los roles `Administrador` y `Estandar`. El Administrador inicial se
+crea al arrancar la API con `ADMIN_NOMBRE`, `ADMIN_CORREO` y `ADMIN_CLAVE`, siempre que no
+exista ya un usuario con ese correo. Si falta alguna variable o la clave no cumple
+RF-CA-14, la API continúa arrancando y escribe una advertencia sin mostrar la contraseña.
+
+### Endpoints y autorización
+
+Todas las rutas declaran su exigencia al mapearse. `Público` significa que no requiere
+token; `Autenticado` requiere una sesión válida; `Administrador` requiere una sesión
+válida cuyo rol sea `Administrador`.
+
+| Método | Ruta | Rol exigido | Requisito que cubre |
+| --- | --- | --- | --- |
+| `GET` | `/salud` | Público | Comprobación de disponibilidad de la API. |
+| `POST` | `/api/registro` | Público | Registro de una cuenta (RF-CA-01, RF-CA-02, RF-CA-14). |
+| `GET` | `/api/activar?token=...` | Público | Activación de una cuenta mediante enlace (RF-CA-15, RF-CA-16). |
+| `POST` | `/api/activacion/reenviar` | Público | Reenvío de activación sin revelar si el correo existe (RF-CA-17). |
+| `POST` | `/api/login` | Público | Inicio de sesión y emisión de token (RF-CA-03, RF-CA-19). |
+| `GET` | `/api/yo` | Autenticado | Consulta de la identidad y el rol de la sesión (RF-CA-07). |
+| `POST` | `/api/logout` | Autenticado | Revocación de la sesión actual (RF-CA-18). |
+| `PUT` | `/api/usuarios/{id}/rol` | Administrador | Cambio de rol de otro usuario (RF-CA-08). |
+| `POST` | `/api/usuarios/{id}/desactivar` | Administrador | Desactivación y revocación de sesiones abiertas (RF-CA-20). |
+| `POST` | `/api/usuarios/{id}/reactivar` | Administrador | Reactivación administrativa de una cuenta (RF-CA-20). |
+| `GET` | `/api/usuarios` | Administrador | Listado de usuarios sin hashes, sales ni tokens (RF-CA-21). |
+
+El punto único de la exigencia de rol (RF-CA-05) está compuesto por:
+
+- `src/GestorTareas.Api/Politicas.cs`, que define las políticas `Autenticado` y
+  `Administrador`.
+- `src/GestorTareas.Api/Program.cs`, donde cada endpoint declara
+  `.RequireAuthorization(Politicas.Autenticado)`,
+  `.RequireAuthorization(Politicas.Administrador)` o `.AllowAnonymous()` al mapearse.
+- `src/GestorTareas.Api/AutenticacionToken.cs`, cuyo manejador valida el token Bearer y
+  crea el claim de rol que utiliza la autorización.
+
+### Cómo probar la administración
+
+Los siguientes comandos se ejecutan en otra ventana de Windows PowerShell 5.1 con la API
+corriendo. Usa en los comandos del Administrador los mismos valores ficticios o de prueba
+que hayas configurado en `ADMIN_CORREO` y `ADMIN_CLAVE`; nunca guardes valores reales en
+este README.
+
+```powershell
+$base = "http://localhost:5065"
+```
+
+#### Administrador inicial (RF-CA-04)
+
+Inicia sesión como el Administrador inicial y consulta `/api/yo`:
+
+```powershell
+$tokenAdmin = (Invoke-RestMethod -Uri "$base/api/login" -Method Post -ContentType "application/json" -Body '{"correo":"admin@example.com","contrasena":"ClaveAdmin123"}').token
+curl.exe -i "$base/api/yo" -H "Authorization: Bearer $tokenAdmin"
+```
+
+Respuesta esperada: login correcto y `200` en `/api/yo`, con `id`, `nombre`, `correo` y
+`"rol":"Administrador"` (RF-CA-04).
+
+#### Exigencia de Administrador (RF-CA-06, RD-06)
+
+Obtén un token de un usuario Estándar activo y construye manualmente una petición de
+Administrador:
+
+```powershell
+$token = (Invoke-RestMethod -Uri "$base/api/login" -Method Post -ContentType "application/json" -Body '{"correo":"estandar@example.com","contrasena":"ClaveEstandar123"}').token
+curl.exe -i "$base/api/usuarios" -H "Authorization: Bearer $token"
+```
+
+Respuesta esperada: `403` con `{"error":"No tienes permiso para realizar esta operación."}`.
+La petición demuestra que tener una sesión autenticada no concede el rol Administrador.
+
+#### Cambio de rol (RF-CA-08)
+
+Un Estándar no puede cambiar ni siquiera su propio rol:
+
+```powershell
+curl.exe -i -X PUT "$base/api/usuarios/$idUsuario/rol" -H "Authorization: Bearer $token" -H "Content-Type: application/json" -d '{\"rol\":\"Administrador\"}'
+```
+
+Respuesta esperada: `403` con `{"error":"No tienes permiso para realizar esta operación."}`.
+
+El Administrador tampoco puede cambiar su propio rol:
+
+```powershell
+curl.exe -i -X PUT "$base/api/usuarios/$idAdmin/rol" -H "Authorization: Bearer $tokenAdmin" -H "Content-Type: application/json" -d '{\"rol\":\"Estandar\"}'
+```
+
+Respuesta esperada: `400` con `{"error":"No puedes cambiar tu propio rol."}`. Para cambiar
+el rol de otro usuario, el Administrador puede usar:
+
+```powershell
+curl.exe -i -X PUT "$base/api/usuarios/$idUsuario/rol" -H "Authorization: Bearer $tokenAdmin" -H "Content-Type: application/json" -d '{\"rol\":\"Administrador\"}'
+```
+
+Respuesta esperada: `200` con `id`, `nombre`, `correo` y `"rol":"Administrador"`.
+
+#### Desactivar y reactivar usuarios (RF-CA-20)
+
+Con una sesión abierta del usuario objetivo, desactívalo desde la sesión del
+Administrador:
+
+```powershell
+$tokenUsuario = (Invoke-RestMethod -Uri "$base/api/login" -Method Post -ContentType "application/json" -Body '{"correo":"usuario@example.com","contrasena":"ClaveUsuario123"}').token
+curl.exe -i -X POST "$base/api/usuarios/$idUsuario/desactivar" -H "Authorization: Bearer $tokenAdmin"
+```
+
+Respuesta esperada: `200` con `id`, `nombre`, `correo`, `rol`, `"activo":true` y
+`"desactivado":true`. Reutiliza la sesión abierta del usuario:
+
+```powershell
+curl.exe -i "$base/api/yo" -H "Authorization: Bearer $tokenUsuario"
+```
+
+Respuesta esperada: `401` con `{"error":"Se requiere iniciar sesión."}` porque sus sesiones
+fueron revocadas. Intenta también iniciar sesión otra vez:
+
+```powershell
+curl.exe -i -X POST "$base/api/login" -H "Content-Type: application/json" -d '{\"correo\":\"usuario@example.com\",\"contrasena\":\"ClaveUsuario123\"}'
+```
+
+Respuesta esperada: `403` con `"La cuenta está desactivada."`. El Administrador no puede
+desactivarse a sí mismo:
+
+```powershell
+curl.exe -i -X POST "$base/api/usuarios/$idAdmin/desactivar" -H "Authorization: Bearer $tokenAdmin"
+```
+
+Respuesta esperada: `400` con `{"error":"No puedes desactivarte a ti mismo."}`. Finalmente,
+reactiva al usuario; esto no revive sus sesiones anteriores:
+
+```powershell
+curl.exe -i -X POST "$base/api/usuarios/$idUsuario/reactivar" -H "Authorization: Bearer $tokenAdmin"
+```
+
+Respuesta esperada: `200` con `"desactivado":false`. La sesión anterior sigue sin servir;
+el usuario debe iniciar sesión de nuevo para obtener otro token.
+
+#### Listado de usuarios (RF-CA-21)
+
+Un Estándar recibe un rechazo:
+
+```powershell
+curl.exe -i "$base/api/usuarios" -H "Authorization: Bearer $token"
+```
+
+Respuesta esperada: `403` con `{"error":"No tienes permiso para realizar esta operación."}`.
+El Administrador puede consultar el listado:
+
+```powershell
+curl.exe -i "$base/api/usuarios" -H "Authorization: Bearer $tokenAdmin"
+```
+
+Respuesta esperada: `200` y un arreglo cuyos únicos campos son `id`, `nombre`, `correo`,
+`rol`, `activo` y `desactivado`; nunca aparecen hashes, sales, tokens ni vencimientos.

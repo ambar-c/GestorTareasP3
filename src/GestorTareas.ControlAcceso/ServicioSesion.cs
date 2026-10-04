@@ -39,7 +39,9 @@ public sealed class ServicioSesion(ContextoControlAcceso contexto)
         return contexto.Sesiones
             .Where(sesion => sesion.HashToken == hash
                 && !sesion.Revocada
-                && sesion.FechaVencimiento > ahora)
+                && sesion.FechaVencimiento > ahora
+                && sesion.Usuario.Activo
+                && !sesion.Usuario.Desactivado)
             .Select(sesion => sesion.Usuario)
             .SingleOrDefaultAsync();
     }
