@@ -34,6 +34,7 @@ if (string.IsNullOrWhiteSpace(urlBase))
 builder.Services.AddSingleton(new OpcionesActivacion(urlBase));
 builder.Services.AddScoped<ServicioRegistro>();
 builder.Services.AddScoped<ServicioActivacion>();
+builder.Services.AddScoped<ServicioRecuperacion>();
 builder.Services.AddScoped<ServicioSesion>();
 builder.Services.AddScoped<ServicioAutenticacion>();
 builder.Services.AddScoped<InicializadorAdministrador>();
@@ -180,6 +181,30 @@ app.MapPost("/api/activacion/reenviar", async (
             new { errores = new[] { "Ocurrió un error inesperado. Inténtalo de nuevo." } },
             statusCode: StatusCodes.Status500InternalServerError)
     };
+})
+    .AllowAnonymous();
+
+app.MapPost("/api/contrasena/recuperar", async (
+    SolicitudRecuperacion? solicitud,
+    ServicioRecuperacion servicioRecuperacion) =>
+{
+    if (solicitud is null)
+    {
+        return Results.BadRequest(new { error = "El cuerpo de la solicitud es obligatorio." });
+    }
+
+    ResultadoValidacionRegistro validacion = ValidadorRegistro.ValidarCorreo(solicitud.Correo);
+    if (!validacion.EsValido)
+    {
+        return Results.BadRequest(new { error = validacion.Errores[0] });
+    }
+
+    await servicioRecuperacion.SolicitarAsync(solicitud.Correo);
+
+    return Results.Ok(new
+    {
+        mensaje = "Si el correo está registrado, recibirás un código para restablecer tu contraseña."
+    });
 })
     .AllowAnonymous();
 
@@ -398,6 +423,8 @@ public sealed record SolicitudRegistro(
     string? Contrasena);
 
 public sealed record SolicitudReenvio(string? Correo);
+
+public sealed record SolicitudRecuperacion(string? Correo);
 
 public sealed record SolicitudInicioSesion(string? Correo, string? Contrasena);
 
