@@ -11,6 +11,7 @@ public sealed class ServicioAutenticacion(
     private const string MensajeCredenciales = "El correo o la contraseña son incorrectos.";
     private const string MensajeBloqueo = "La cuenta está bloqueada temporalmente.";
     private const string MensajeInactiva = "La cuenta no está activa.";
+    private const string MensajeDesactivada = "La cuenta está desactivada.";
 
     public async Task<ResultadoInicioSesion> IniciarSesionAsync(
         string? correo,
@@ -57,6 +58,13 @@ public sealed class ServicioAutenticacion(
             return usuario.BloqueadoHasta > ahora
                 ? new ResultadoInicioSesion(EstadoInicioSesion.CuentaBloqueada, errores: [MensajeBloqueo])
                 : CredencialesInvalidas();
+        }
+
+        if (usuario.Desactivado)
+        {
+            return new ResultadoInicioSesion(
+                EstadoInicioSesion.CuentaDesactivada,
+                errores: [MensajeDesactivada]);
         }
 
         if (!usuario.Activo)

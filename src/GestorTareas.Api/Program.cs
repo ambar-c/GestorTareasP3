@@ -107,6 +107,8 @@ app.MapPost("/api/login", async (
             new { errores = resultado.Errores }, statusCode: StatusCodes.Status423Locked),
         EstadoInicioSesion.CuentaInactiva => Results.Json(
             new { errores = resultado.Errores }, statusCode: StatusCodes.Status403Forbidden),
+        EstadoInicioSesion.CuentaDesactivada => Results.Json(
+            new { errores = resultado.Errores }, statusCode: StatusCodes.Status403Forbidden),
         _ => Results.StatusCode(StatusCodes.Status500InternalServerError)
     };
 })
@@ -269,6 +271,79 @@ app.MapPut("/api/usuarios/{id}/rol", async (
             rol = resultado.Usuario.Rol.ToString()
         }),
         _ => Results.BadRequest(new { error = "No se pudo cambiar el rol." })
+    };
+})
+    .RequireAuthorization(Politicas.Administrador);
+
+app.MapPost("/api/usuarios/{id}/desactivar", async (
+    string id,
+    ClaimsPrincipal administrador,
+    ServicioUsuarios servicioUsuarios) =>
+{
+    if (!Guid.TryParse(id, out Guid idUsuario))
+    {
+        return Results.BadRequest(new { error = "El identificador del usuario no es válido." });
+    }
+
+    if (!Guid.TryParse(administrador.FindFirstValue(ClaimTypes.NameIdentifier), out Guid idAdministrador))
+    {
+        return Results.BadRequest(new { error = "La identidad del Administrador no es válida." });
+    }
+
+    ResultadoCambioEstadoUsuario resultado = await servicioUsuarios.DesactivarAsync(
+        idAdministrador,
+        idUsuario);
+
+    return resultado.Estado switch
+    {
+        EstadoCambioEstadoUsuario.UsuarioNoEncontrado => Results.NotFound(new { error = resultado.Motivo }),
+        EstadoCambioEstadoUsuario.MismoUsuario => Results.BadRequest(new { error = resultado.Motivo }),
+        EstadoCambioEstadoUsuario.Exitoso => Results.Ok(new
+        {
+            id = resultado.Usuario!.Id,
+            nombre = resultado.Usuario.Nombre,
+            correo = resultado.Usuario.Correo,
+            rol = resultado.Usuario.Rol.ToString(),
+            activo = resultado.Usuario.Activo,
+            desactivado = resultado.Usuario.Desactivado
+        }),
+        _ => Results.BadRequest(new { error = "No se pudo desactivar el usuario." })
+    };
+})
+    .RequireAuthorization(Politicas.Administrador);
+
+app.MapPost("/api/usuarios/{id}/reactivar", async (
+    string id,
+    ClaimsPrincipal administrador,
+    ServicioUsuarios servicioUsuarios) =>
+{
+    if (!Guid.TryParse(id, out Guid idUsuario))
+    {
+        return Results.BadRequest(new { error = "El identificador del usuario no es válido." });
+    }
+
+    if (!Guid.TryParse(administrador.FindFirstValue(ClaimTypes.NameIdentifier), out Guid idAdministrador))
+    {
+        return Results.BadRequest(new { error = "La identidad del Administrador no es válida." });
+    }
+
+    ResultadoCambioEstadoUsuario resultado = await servicioUsuarios.ReactivarAsync(
+        idAdministrador,
+        idUsuario);
+
+    return resultado.Estado switch
+    {
+        EstadoCambioEstadoUsuario.UsuarioNoEncontrado => Results.NotFound(new { error = resultado.Motivo }),
+        EstadoCambioEstadoUsuario.Exitoso => Results.Ok(new
+        {
+            id = resultado.Usuario!.Id,
+            nombre = resultado.Usuario.Nombre,
+            correo = resultado.Usuario.Correo,
+            rol = resultado.Usuario.Rol.ToString(),
+            activo = resultado.Usuario.Activo,
+            desactivado = resultado.Usuario.Desactivado
+        }),
+        _ => Results.BadRequest(new { error = "No se pudo reactivar el usuario." })
     };
 })
     .RequireAuthorization(Politicas.Administrador);

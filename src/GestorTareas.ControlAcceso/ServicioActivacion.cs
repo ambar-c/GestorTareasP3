@@ -29,7 +29,8 @@ public sealed class ServicioActivacion(
             int filasAfectadas = await contexto.Usuarios
                 .Where(usuario => usuario.HashTokenActivacion == hash
                     && usuario.VencimientoActivacion >= ahora
-                    && !usuario.Activo)
+                    && !usuario.Activo
+                    && !usuario.Desactivado)
                 .ExecuteUpdateAsync(actualizacion => actualizacion
                     .SetProperty(usuario => usuario.Activo, true)
                     .SetProperty(usuario => usuario.HashTokenActivacion, (byte[]?)null)
@@ -62,7 +63,7 @@ public sealed class ServicioActivacion(
             Usuario? usuario = await contexto.Usuarios
                 .SingleOrDefaultAsync(usuario => usuario.Correo == validacion.CorreoNormalizado);
 
-            if (usuario is not null && !usuario.Activo)
+            if (usuario is not null && !usuario.Activo && !usuario.Desactivado)
             {
                 (string token, byte[] hash) = GeneradorTokenActivacion.Generar();
                 usuario.HashTokenActivacion = hash;

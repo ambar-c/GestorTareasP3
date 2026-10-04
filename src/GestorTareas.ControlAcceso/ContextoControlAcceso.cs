@@ -46,6 +46,9 @@ public class ContextoControlAcceso(DbContextOptions<ContextoControlAcceso> opcio
             entidad.Property(usuario => usuario.Activo)
                 .IsRequired();
 
+            entidad.Property(usuario => usuario.Desactivado)
+                .IsRequired();
+
             entidad.Property(usuario => usuario.FechaCreacion)
                 .IsRequired();
 

@@ -6,7 +6,8 @@ public enum EstadoInicioSesion
     DatosInvalidos,
     CredencialesInvalidas,
     CuentaBloqueada,
-    CuentaInactiva
+    CuentaInactiva,
+    CuentaDesactivada
 }
 
 public sealed class ResultadoInicioSesion
