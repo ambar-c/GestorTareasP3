@@ -1,3 +1,5 @@
+using Microsoft.EntityFrameworkCore;
+
 namespace GestorTareas.ControlAcceso;
 
 public sealed record ResultadoEstablecerContrasena(
@@ -28,5 +30,30 @@ public sealed class ServicioContrasenas(
         await contexto.SaveChangesAsync();
 
         return new ResultadoEstablecerContrasena(true, Array.Empty<string>());
+    }
+
+    public async Task<ResultadoEstablecerContrasena> CambiarAsync(
+        Guid idUsuario,
+        string? contrasenaActual,
+        string? contrasenaNueva)
+    {
+        Usuario? usuario = await contexto.Usuarios
+            .SingleOrDefaultAsync(usuario => usuario.Id == idUsuario);
+
+        bool contrasenaCorrecta = usuario is not null
+            && contrasenaActual is not null
+            && HasheadorContrasena.Verificar(
+                contrasenaActual,
+                usuario.Sal,
+                usuario.HashContrasena);
+
+        if (!contrasenaCorrecta)
+        {
+            return new ResultadoEstablecerContrasena(
+                false,
+                ["La contraseña actual no es correcta."]);
+        }
+
+        return await EstablecerContrasenaAsync(usuario!, contrasenaNueva);
     }
 }

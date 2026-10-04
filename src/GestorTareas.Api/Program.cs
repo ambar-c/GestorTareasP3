@@ -245,6 +245,47 @@ app.MapPost("/api/contrasena/restablecer", async (
 })
     .AllowAnonymous();
 
+app.MapPut("/api/contrasena", async (
+    SolicitudCambioContrasena? solicitud,
+    ClaimsPrincipal usuarioAutenticado,
+    ServicioContrasenas servicioContrasenas) =>
+{
+    if (solicitud is null)
+    {
+        return Results.BadRequest(new { error = "El cuerpo de la solicitud es obligatorio." });
+    }
+
+    if (string.IsNullOrEmpty(solicitud.ContrasenaActual))
+    {
+        return Results.BadRequest(new { error = "La contraseña actual es obligatoria." });
+    }
+
+    if (string.IsNullOrEmpty(solicitud.ContrasenaNueva))
+    {
+        return Results.BadRequest(new { error = "La contraseña nueva es obligatoria." });
+    }
+
+    if (!Guid.TryParse(
+        usuarioAutenticado.FindFirstValue(ClaimTypes.NameIdentifier),
+        out Guid idUsuario))
+    {
+        return Results.BadRequest(new { error = "La identidad del usuario no es válida." });
+    }
+
+    ResultadoEstablecerContrasena resultado = await servicioContrasenas.CambiarAsync(
+        idUsuario,
+        solicitud.ContrasenaActual,
+        solicitud.ContrasenaNueva);
+
+    return resultado.Exitoso
+        ? Results.Ok(new
+        {
+            mensaje = "Tu contraseña se actualizó. Inicia sesión de nuevo."
+        })
+        : Results.BadRequest(new { error = resultado.Errores[0] });
+})
+    .RequireAuthorization(Politicas.Autenticado);
+
 app.MapPost("/api/registro", async (
     SolicitudRegistro? solicitud,
     ServicioRegistro servicioRegistro) =>
@@ -464,6 +505,8 @@ public sealed record SolicitudReenvio(string? Correo);
 public sealed record SolicitudRecuperacion(string? Correo);
 
 public sealed record SolicitudRestablecimiento(string? Codigo, string? ContrasenaNueva);
+
+public sealed record SolicitudCambioContrasena(string? ContrasenaActual, string? ContrasenaNueva);
 
 public sealed record SolicitudInicioSesion(string? Correo, string? Contrasena);
 
