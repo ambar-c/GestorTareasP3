@@ -26,6 +26,17 @@ public sealed record ResultadoCambioEstadoUsuario(
     string? Motivo,
     Usuario? Usuario);
 
+public enum EstadoRestablecimientoForzado
+{
+    Exitoso,
+    UsuarioNoEncontrado,
+    MismoUsuario
+}
+
+public sealed record ResultadoRestablecimientoForzado(
+    EstadoRestablecimientoForzado Estado,
+    string? Motivo);
+
 public sealed record UsuarioResumen(
     Guid Id,
     string Nombre,
@@ -36,7 +47,9 @@ public sealed record UsuarioResumen(
 
 public sealed class ServicioUsuarios(
     ContextoControlAcceso contexto,
-    ServicioSesion servicioSesion)
+    ServicioSesion servicioSesion,
+    ServicioContrasenas servicioContrasenas,
+    ServicioRecuperacion servicioRecuperacion)
 {
     public async Task<ResultadoCambioRol> CambiarRolAsync(
         Guid idAdministrador,
@@ -140,5 +153,38 @@ public sealed class ServicioUsuarios(
                 usuario.Activo,
                 usuario.Desactivado))
             .ToListAsync();
+    }
+
+    public async Task<ResultadoRestablecimientoForzado> ForzarRestablecimientoAsync(
+        Guid idAdministrador,
+        Guid idUsuario)
+    {
+        Usuario? usuario = await contexto.Usuarios
+            .SingleOrDefaultAsync(usuario => usuario.Id == idUsuario);
+
+        if (usuario is null)
+        {
+            return new ResultadoRestablecimientoForzado(
+                EstadoRestablecimientoForzado.UsuarioNoEncontrado,
+                "Usuario no encontrado.");
+        }
+
+        if (idUsuario == idAdministrador)
+        {
+            return new ResultadoRestablecimientoForzado(
+                EstadoRestablecimientoForzado.MismoUsuario,
+                "No puedes forzar el restablecimiento de tu propia contraseña; usa el cambio de contraseña.");
+        }
+
+        await using Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction transaccion =
+            await contexto.Database.BeginTransactionAsync();
+
+        await servicioContrasenas.InvalidarContrasenaAsync(usuario);
+        await servicioRecuperacion.EmitirCodigoAsync(usuario);
+        await transaccion.CommitAsync();
+
+        return new ResultadoRestablecimientoForzado(
+            EstadoRestablecimientoForzado.Exitoso,
+            null);
     }
 }

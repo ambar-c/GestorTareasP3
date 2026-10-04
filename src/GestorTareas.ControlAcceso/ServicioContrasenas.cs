@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using System.Security.Cryptography;
 
 namespace GestorTareas.ControlAcceso;
 
@@ -55,5 +56,17 @@ public sealed class ServicioContrasenas(
         }
 
         return await EstablecerContrasenaAsync(usuario!, contrasenaNueva);
+    }
+
+    public async Task InvalidarContrasenaAsync(Usuario usuario)
+    {
+        string secretoAleatorio = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
+        (byte[] sal, byte[] hash) = HasheadorContrasena.Hashear(secretoAleatorio);
+
+        usuario.Sal = sal;
+        usuario.HashContrasena = hash;
+
+        await servicioSesion.RevocarPorUsuarioAsync(usuario.Id);
+        await contexto.SaveChangesAsync();
     }
 }

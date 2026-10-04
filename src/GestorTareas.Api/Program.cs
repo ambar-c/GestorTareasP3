@@ -430,6 +430,41 @@ app.MapPost("/api/usuarios/{id}/desactivar", async (
 })
     .RequireAuthorization(Politicas.Administrador);
 
+app.MapPost("/api/usuarios/{id}/restablecer-contrasena", async (
+    string id,
+    ClaimsPrincipal administrador,
+    ServicioUsuarios servicioUsuarios) =>
+{
+    if (!Guid.TryParse(id, out Guid idUsuario))
+    {
+        return Results.BadRequest(new { error = "El identificador del usuario no es válido." });
+    }
+
+    if (!Guid.TryParse(
+        administrador.FindFirstValue(ClaimTypes.NameIdentifier),
+        out Guid idAdministrador))
+    {
+        return Results.BadRequest(new { error = "La identidad del Administrador no es válida." });
+    }
+
+    ResultadoRestablecimientoForzado resultado = await servicioUsuarios
+        .ForzarRestablecimientoAsync(idAdministrador, idUsuario);
+
+    return resultado.Estado switch
+    {
+        EstadoRestablecimientoForzado.UsuarioNoEncontrado => Results.NotFound(
+            new { error = resultado.Motivo }),
+        EstadoRestablecimientoForzado.MismoUsuario => Results.BadRequest(
+            new { error = resultado.Motivo }),
+        EstadoRestablecimientoForzado.Exitoso => Results.Ok(new
+        {
+            mensaje = "Se envió al usuario un código para definir una nueva contraseña."
+        }),
+        _ => Results.BadRequest(new { error = "No se pudo restablecer la contraseña." })
+    };
+})
+    .RequireAuthorization(Politicas.Administrador);
+
 app.MapPost("/api/usuarios/{id}/reactivar", async (
     string id,
     ClaimsPrincipal administrador,
