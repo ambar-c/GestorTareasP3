@@ -1,3 +1,5 @@
+using GestorTareas.Negocio.Estados;
+
 namespace GestorTareas.Negocio.Entidades;
 
 public class Tarea
@@ -11,4 +13,26 @@ public class Tarea
     public string? MotivoCancelacion { get; set; }
     public DateTime FechaCreacion { get; set; }
     public ICollection<Comentario> Comentarios { get; set; } = new List<Comentario>();
+
+    public ResultadoTransicion CambiarEstado(
+        EstadoTarea hacia,
+        ActorTransicion actor,
+        string? motivo = null)
+    {
+        var resultado = MaquinaEstadosTarea.Validar(this, hacia, actor, motivo);
+
+        if (!resultado.Exito)
+        {
+            return resultado;
+        }
+
+        Estado = hacia;
+
+        if (hacia == EstadoTarea.Cancelada)
+        {
+            MotivoCancelacion = motivo!.Trim();
+        }
+
+        return resultado;
+    }
 }
