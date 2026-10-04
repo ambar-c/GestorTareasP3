@@ -37,6 +37,7 @@ builder.Services.AddScoped<ServicioActivacion>();
 builder.Services.AddScoped<ServicioSesion>();
 builder.Services.AddScoped<ServicioAutenticacion>();
 builder.Services.AddScoped<InicializadorAdministrador>();
+builder.Services.AddScoped<ServicioUsuarios>();
 builder.Services.AddAuthentication("Token")
     .AddScheme<AuthenticationSchemeOptions, ManejadorAutenticacionToken>("Token", _ => { });
 builder.Services.AddAuthorization(opciones =>
@@ -218,6 +219,60 @@ app.MapPost("/api/registro", async (
 })
     .AllowAnonymous();
 
+app.MapPut("/api/usuarios/{id}/rol", async (
+    string id,
+    SolicitudCambioRol? solicitud,
+    ClaimsPrincipal administrador,
+    ServicioUsuarios servicioUsuarios) =>
+{
+    if (!Guid.TryParse(id, out Guid idUsuario))
+    {
+        return Results.BadRequest(new { error = "El identificador del usuario no es válido." });
+    }
+
+    if (solicitud is null || string.IsNullOrWhiteSpace(solicitud.Rol))
+    {
+        return Results.BadRequest(new { error = "El cuerpo y el rol son obligatorios." });
+    }
+
+    Rol nuevoRol = solicitud.Rol switch
+    {
+        "Administrador" => Rol.Administrador,
+        "Estandar" => Rol.Estandar,
+        _ => (Rol)(-1)
+    };
+
+    if (!Enum.IsDefined(nuevoRol))
+    {
+        return Results.BadRequest(new { error = "El rol no es válido." });
+    }
+
+    if (!Guid.TryParse(administrador.FindFirstValue(ClaimTypes.NameIdentifier), out Guid idAdministrador))
+    {
+        return Results.BadRequest(new { error = "La identidad del Administrador no es válida." });
+    }
+
+    ResultadoCambioRol resultado = await servicioUsuarios.CambiarRolAsync(
+        idAdministrador,
+        idUsuario,
+        nuevoRol);
+
+    return resultado.Estado switch
+    {
+        EstadoCambioRol.UsuarioNoEncontrado => Results.NotFound(new { error = resultado.Motivo }),
+        EstadoCambioRol.MismoUsuario => Results.BadRequest(new { error = resultado.Motivo }),
+        EstadoCambioRol.Exitoso => Results.Ok(new
+        {
+            id = resultado.Usuario!.Id,
+            nombre = resultado.Usuario.Nombre,
+            correo = resultado.Usuario.Correo,
+            rol = resultado.Usuario.Rol.ToString()
+        }),
+        _ => Results.BadRequest(new { error = "No se pudo cambiar el rol." })
+    };
+})
+    .RequireAuthorization(Politicas.Administrador);
+
 string? adminNombre = Environment.GetEnvironmentVariable("ADMIN_NOMBRE");
 string? adminCorreo = Environment.GetEnvironmentVariable("ADMIN_CORREO");
 string? adminClave = Environment.GetEnvironmentVariable("ADMIN_CLAVE");
@@ -255,3 +310,5 @@ public sealed record SolicitudRegistro(
 public sealed record SolicitudReenvio(string? Correo);
 
 public sealed record SolicitudInicioSesion(string? Correo, string? Contrasena);
+
+public sealed record SolicitudCambioRol(string? Rol);
