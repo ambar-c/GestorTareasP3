@@ -303,6 +303,139 @@ Registra primero la cuenta: `LlamarSesion Post "/api/registro" '{"nombre":"Sesio
 | El bloqueo persiste (RD-09) | Reinicia la API y repite el login | Sigue en `423`; en SSMS, `SELECT FallosInicioSesion, BloqueadoHasta FROM Usuarios` muestra `5` y la fecha de fin |
 | Login correcto reinicia el contador (RF-CA-19) | Para no esperar, ejecuta en SSMS `UPDATE Usuarios SET BloqueadoHasta = DATEADD(MINUTE, -1, SYSUTCDATETIME()) WHERE Correo = 'sesion1@example.com'` y haz login correcto | `200`; `FallosInicioSesion = 0` y `BloqueadoHasta = NULL` |
 
+## Contraseñas
+
+La Fase 5 incorpora la recuperación, el cambio y el restablecimiento administrativo de
+contraseñas.
+
+La recuperación comienza con `POST /api/contrasena/recuperar`. La respuesta es la misma
+si el correo existe o no. El código de recuperación solo aparece en el correo que sale por
+la cola; en la base de datos se guarda únicamente su hash. El código vence a los 30 minutos
+y solo es válido el último código emitido para ese usuario.
+
+Los siguientes comandos se ejecutan en otra ventana de Windows PowerShell 5.1 con la API
+corriendo. Usa siempre `TU_CORREO@gmail.com` como marcador, nunca un correo real:
+
+```powershell
+$base = "http://localhost:5065"
+```
+
+Los tokens se obtienen con `Invoke-RestMethod` y el JSON va entre comillas simples. Las demás
+peticiones usan `curl.exe -i`; en sus cuerpos JSON las comillas internas se escapan con `\`:
+
+### Solicitar y usar un código (RF-CA-09, RF-CA-10, RF-CA-11, RF-CA-12)
+
+Primero provoca RF-CA-09 antes de registrar la cuenta:
+
+```powershell
+curl.exe -i -X POST "$base/api/contrasena/recuperar" -H "Content-Type: application/json" -d '{\"correo\":\"TU_CORREO@gmail.com\"}'
+```
+
+Después registra y activa una cuenta con ese mismo marcador, solicita otra recuperación y
+ejecuta el Enviador (`dotnet run --project src/GestorTareas.Enviador`). Repite la solicitud
+con el mismo correo inexistente y con el existente:
+
+```powershell
+curl.exe -i -X POST "$base/api/contrasena/recuperar" -H "Content-Type: application/json" -d '{\"correo\":\"TU_CORREO@gmail.com\"}'
+```
+
+En ambos casos la respuesta esperada es `200` con exactamente:
+`{"mensaje":"Si el correo está registrado, recibirás un código para restablecer tu contraseña."}`.
+Así la respuesta no revela si el correo está registrado (RF-CA-09).
+
+El código llega en el correo cuando se ejecuta el Enviador. Para enviarlo al endpoint, las
+comillas simples no expanden variables de PowerShell; por eso el cuerpo se construye
+concatenando el código:
+
+```powershell
+$codigo = "CODIGO_DEL_CORREO"
+$cuerpo = '{"codigo":"' + $codigo + '","contrasenaNueva":"ClaveNueva123"}'
+curl.exe -i -X POST "$base/api/contrasena/restablecer" -H "Content-Type: application/json" -d $cuerpo
+```
+
+La primera utilización del código responde `200` con
+`{"mensaje":"Tu contraseña se actualizó. Inicia sesión con la nueva contraseña."}`.
+Reutilizar el mismo código responde `400` con
+`{"error":"El código no es válido o ha vencido."}`. Para probar el vencimiento, solicita
+un código nuevo y ejecuta en SSMS:
+
+```sql
+UPDATE CodigosRecuperacion SET FechaVencimiento = DATEADD(MINUTE, -1, SYSUTCDATETIME())
+WHERE Usado = 0 AND UsuarioId = (SELECT Id FROM Usuarios WHERE Correo = 'TU_CORREO@gmail.com')
+```
+
+El mismo intento de restablecimiento responde `400` con
+`{"error":"El código no es válido o ha vencido."}`. Emite dos códigos seguidos: el primero
+responde `400` y solo el segundo puede utilizarse (RF-CA-10).
+
+Para comprobar que la contraseña anterior dejó de servir, inicia sesión antes del cambio y
+guarda el token con `Invoke-RestMethod`:
+
+```powershell
+$tokenAnterior = (Invoke-RestMethod -Uri "$base/api/login" -Method Post -ContentType "application/json" -Body '{"correo":"TU_CORREO@gmail.com","contrasena":"ClaveAnterior123"}').token
+```
+
+Restablece con el código y prueba la contraseña anterior:
+
+```powershell
+curl.exe -i -X POST "$base/api/login" -H "Content-Type: application/json" -d '{\"correo\":\"TU_CORREO@gmail.com\",\"contrasena\":\"ClaveAnterior123\"}'
+```
+
+Responde `401` con `"El correo o la contraseña son incorrectos."` (RF-CA-11). La sesión
+abierta antes del restablecimiento también queda revocada:
+
+```powershell
+curl.exe -i "$base/api/yo" -H "Authorization: Bearer $tokenAnterior"
+```
+
+Responde `401` (RF-CA-12).
+
+### Política de contraseña y cambio autenticado (RF-CA-14, RF-CA-22)
+
+Solicita un código nuevo y prueba una contraseña corta en el restablecimiento:
+
+```powershell
+$codigo = "CODIGO_DEL_CORREO"
+$cuerpo = '{"codigo":"' + $codigo + '","contrasenaNueva":"ab12"}'
+curl.exe -i -X POST "$base/api/contrasena/restablecer" -H "Content-Type: application/json" -d $cuerpo
+```
+
+Responde `400` con `"La contraseña debe tener al menos 8 caracteres."`. La misma política
+se aplica al cambio autenticado. Obtén el token con `Invoke-RestMethod`:
+
+```powershell
+$token = (Invoke-RestMethod -Uri "$base/api/login" -Method Post -ContentType "application/json" -Body '{"correo":"TU_CORREO@gmail.com","contrasena":"ClaveNueva123"}').token
+curl.exe -i -X PUT "$base/api/contrasena" -H "Authorization: Bearer $token" -H "Content-Type: application/json" -d '{\"contrasenaActual\":\"ClaveNueva123\",\"contrasenaNueva\":\"ab12\"}'
+```
+
+Responde `400` con `"La contraseña debe tener al menos 8 caracteres."` (RF-CA-14). Con la
+contraseña actual incorrecta:
+
+```powershell
+curl.exe -i -X PUT "$base/api/contrasena" -H "Authorization: Bearer $token" -H "Content-Type: application/json" -d '{\"contrasenaActual\":\"Incorrecta123\",\"contrasenaNueva\":\"ClaveNueva456\"}'
+```
+
+Responde `400` con `"La contraseña actual no es correcta."` (RF-CA-22). Con datos válidos
+responde `200` con `{"mensaje":"Tu contraseña se actualizó. Inicia sesión de nuevo."}`;
+la sesión utilizada también queda invalidada (RF-CA-12).
+
+### Restablecimiento forzado por Administrador (RF-CA-13)
+
+Con una sesión de Administrador y una sesión abierta del usuario objetivo, obtiene el token
+del Administrador con `Invoke-RestMethod` y llama al endpoint con `curl.exe -i`:
+
+```powershell
+$tokenAdmin = (Invoke-RestMethod -Uri "$base/api/login" -Method Post -ContentType "application/json" -Body '{"correo":"TU_CORREO@gmail.com","contrasena":"ClaveAdmin123"}').token
+curl.exe -i -X POST "$base/api/usuarios/$idUsuario/restablecer-contrasena" -H "Authorization: Bearer $tokenAdmin"
+```
+
+Responde `200` con `{"mensaje":"Se envió al usuario un código para definir una nueva contraseña."}`.
+El usuario ya no puede iniciar sesión con la contraseña anterior, su sesión abierta responde
+`401`, y recibe el código por la cola al ejecutar el Enviador. El Administrador no puede
+forzar su propia contraseña: responde `400` con
+`"No puedes forzar el restablecimiento de tu propia contraseña; usa el cambio de contraseña."`.
+Un identificador válido pero inexistente responde `404` con `"Usuario no encontrado."`.
+
 ## Roles y administración
 
 La Fase 4 incorpora los roles `Administrador` y `Estandar`. El Administrador inicial se
@@ -323,10 +456,14 @@ válida cuyo rol sea `Administrador`.
 | `GET` | `/api/activar?token=...` | Público | Activación de una cuenta mediante enlace (RF-CA-15, RF-CA-16). |
 | `POST` | `/api/activacion/reenviar` | Público | Reenvío de activación sin revelar si el correo existe (RF-CA-17). |
 | `POST` | `/api/login` | Público | Inicio de sesión y emisión de token (RF-CA-03, RF-CA-19). |
+| `POST` | `/api/contrasena/recuperar` | Público | Solicitud de recuperación sin revelar si el correo existe (RF-CA-09, RF-CA-10). |
+| `POST` | `/api/contrasena/restablecer` | Público | Restablecimiento mediante código de recuperación (RF-CA-11, RF-CA-12). |
+| `PUT` | `/api/contrasena` | Autenticado | Cambio de la propia contraseña (RF-CA-22). |
 | `GET` | `/api/yo` | Autenticado | Consulta de la identidad y el rol de la sesión (RF-CA-07). |
 | `POST` | `/api/logout` | Autenticado | Revocación de la sesión actual (RF-CA-18). |
 | `PUT` | `/api/usuarios/{id}/rol` | Administrador | Cambio de rol de otro usuario (RF-CA-08). |
 | `POST` | `/api/usuarios/{id}/desactivar` | Administrador | Desactivación y revocación de sesiones abiertas (RF-CA-20). |
+| `POST` | `/api/usuarios/{id}/restablecer-contrasena` | Administrador | Restablecimiento forzado de la contraseña de otro usuario (RF-CA-13). |
 | `POST` | `/api/usuarios/{id}/reactivar` | Administrador | Reactivación administrativa de una cuenta (RF-CA-20). |
 | `GET` | `/api/usuarios` | Administrador | Listado de usuarios sin hashes, sales ni tokens (RF-CA-21). |
 

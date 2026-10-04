@@ -34,6 +34,8 @@ if (string.IsNullOrWhiteSpace(urlBase))
 builder.Services.AddSingleton(new OpcionesActivacion(urlBase));
 builder.Services.AddScoped<ServicioRegistro>();
 builder.Services.AddScoped<ServicioActivacion>();
+builder.Services.AddScoped<ServicioRecuperacion>();
+builder.Services.AddScoped<ServicioContrasenas>();
 builder.Services.AddScoped<ServicioSesion>();
 builder.Services.AddScoped<ServicioAutenticacion>();
 builder.Services.AddScoped<InicializadorAdministrador>();
@@ -183,6 +185,107 @@ app.MapPost("/api/activacion/reenviar", async (
 })
     .AllowAnonymous();
 
+app.MapPost("/api/contrasena/recuperar", async (
+    SolicitudRecuperacion? solicitud,
+    ServicioRecuperacion servicioRecuperacion) =>
+{
+    if (solicitud is null)
+    {
+        return Results.BadRequest(new { error = "El cuerpo de la solicitud es obligatorio." });
+    }
+
+    ResultadoValidacionRegistro validacion = ValidadorRegistro.ValidarCorreo(solicitud.Correo);
+    if (!validacion.EsValido)
+    {
+        return Results.BadRequest(new { error = validacion.Errores[0] });
+    }
+
+    await servicioRecuperacion.SolicitarAsync(solicitud.Correo);
+
+    return Results.Ok(new
+    {
+        mensaje = "Si el correo está registrado, recibirás un código para restablecer tu contraseña."
+    });
+})
+    .AllowAnonymous();
+
+app.MapPost("/api/contrasena/restablecer", async (
+    SolicitudRestablecimiento? solicitud,
+    ServicioRecuperacion servicioRecuperacion) =>
+{
+    if (solicitud is null)
+    {
+        return Results.BadRequest(new { error = "El cuerpo de la solicitud es obligatorio." });
+    }
+
+    if (string.IsNullOrWhiteSpace(solicitud.Codigo))
+    {
+        return Results.BadRequest(new { error = "El código es obligatorio." });
+    }
+
+    if (string.IsNullOrEmpty(solicitud.ContrasenaNueva))
+    {
+        return Results.BadRequest(new { error = "La contraseña es obligatoria." });
+    }
+
+    ResultadoRestablecimiento resultado = await servicioRecuperacion.RestablecerAsync(
+        solicitud.Codigo,
+        solicitud.ContrasenaNueva);
+
+    return resultado.Estado switch
+    {
+        EstadoRestablecimiento.Exitoso => Results.Ok(new
+        {
+            mensaje = "Tu contraseña se actualizó. Inicia sesión con la nueva contraseña."
+        }),
+        EstadoRestablecimiento.DatosInvalidos => Results.BadRequest(new { error = resultado.Errores[0] }),
+        EstadoRestablecimiento.CodigoInvalido => Results.BadRequest(new { error = resultado.Errores[0] }),
+        _ => Results.BadRequest(new { error = "No se pudo restablecer la contraseña." })
+    };
+})
+    .AllowAnonymous();
+
+app.MapPut("/api/contrasena", async (
+    SolicitudCambioContrasena? solicitud,
+    ClaimsPrincipal usuarioAutenticado,
+    ServicioContrasenas servicioContrasenas) =>
+{
+    if (solicitud is null)
+    {
+        return Results.BadRequest(new { error = "El cuerpo de la solicitud es obligatorio." });
+    }
+
+    if (string.IsNullOrEmpty(solicitud.ContrasenaActual))
+    {
+        return Results.BadRequest(new { error = "La contraseña actual es obligatoria." });
+    }
+
+    if (string.IsNullOrEmpty(solicitud.ContrasenaNueva))
+    {
+        return Results.BadRequest(new { error = "La contraseña nueva es obligatoria." });
+    }
+
+    if (!Guid.TryParse(
+        usuarioAutenticado.FindFirstValue(ClaimTypes.NameIdentifier),
+        out Guid idUsuario))
+    {
+        return Results.BadRequest(new { error = "La identidad del usuario no es válida." });
+    }
+
+    ResultadoEstablecerContrasena resultado = await servicioContrasenas.CambiarAsync(
+        idUsuario,
+        solicitud.ContrasenaActual,
+        solicitud.ContrasenaNueva);
+
+    return resultado.Exitoso
+        ? Results.Ok(new
+        {
+            mensaje = "Tu contraseña se actualizó. Inicia sesión de nuevo."
+        })
+        : Results.BadRequest(new { error = resultado.Errores[0] });
+})
+    .RequireAuthorization(Politicas.Autenticado);
+
 app.MapPost("/api/registro", async (
     SolicitudRegistro? solicitud,
     ServicioRegistro servicioRegistro) =>
@@ -327,6 +430,41 @@ app.MapPost("/api/usuarios/{id}/desactivar", async (
 })
     .RequireAuthorization(Politicas.Administrador);
 
+app.MapPost("/api/usuarios/{id}/restablecer-contrasena", async (
+    string id,
+    ClaimsPrincipal administrador,
+    ServicioUsuarios servicioUsuarios) =>
+{
+    if (!Guid.TryParse(id, out Guid idUsuario))
+    {
+        return Results.BadRequest(new { error = "El identificador del usuario no es válido." });
+    }
+
+    if (!Guid.TryParse(
+        administrador.FindFirstValue(ClaimTypes.NameIdentifier),
+        out Guid idAdministrador))
+    {
+        return Results.BadRequest(new { error = "La identidad del Administrador no es válida." });
+    }
+
+    ResultadoRestablecimientoForzado resultado = await servicioUsuarios
+        .ForzarRestablecimientoAsync(idAdministrador, idUsuario);
+
+    return resultado.Estado switch
+    {
+        EstadoRestablecimientoForzado.UsuarioNoEncontrado => Results.NotFound(
+            new { error = resultado.Motivo }),
+        EstadoRestablecimientoForzado.MismoUsuario => Results.BadRequest(
+            new { error = resultado.Motivo }),
+        EstadoRestablecimientoForzado.Exitoso => Results.Ok(new
+        {
+            mensaje = "Se envió al usuario un código para definir una nueva contraseña."
+        }),
+        _ => Results.BadRequest(new { error = "No se pudo restablecer la contraseña." })
+    };
+})
+    .RequireAuthorization(Politicas.Administrador);
+
 app.MapPost("/api/usuarios/{id}/reactivar", async (
     string id,
     ClaimsPrincipal administrador,
@@ -398,6 +536,12 @@ public sealed record SolicitudRegistro(
     string? Contrasena);
 
 public sealed record SolicitudReenvio(string? Correo);
+
+public sealed record SolicitudRecuperacion(string? Correo);
+
+public sealed record SolicitudRestablecimiento(string? Codigo, string? ContrasenaNueva);
+
+public sealed record SolicitudCambioContrasena(string? ContrasenaActual, string? ContrasenaNueva);
 
 public sealed record SolicitudInicioSesion(string? Correo, string? Contrasena);
 

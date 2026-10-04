@@ -9,6 +9,8 @@ public class ContextoControlAcceso(DbContextOptions<ContextoControlAcceso> opcio
 
     public DbSet<Sesion> Sesiones => Set<Sesion>();
 
+    public DbSet<CodigoRecuperacion> CodigosRecuperacion => Set<CodigoRecuperacion>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<Usuario>(entidad =>
@@ -78,6 +80,30 @@ public class ContextoControlAcceso(DbContextOptions<ContextoControlAcceso> opcio
             entidad.HasOne(sesion => sesion.Usuario)
                 .WithMany()
                 .HasForeignKey(sesion => sesion.UsuarioId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<CodigoRecuperacion>(entidad =>
+        {
+            entidad.ToTable("CodigosRecuperacion");
+            entidad.HasKey(codigo => codigo.Id);
+
+            entidad.Property(codigo => codigo.HashCodigo)
+                .IsRequired()
+                .HasMaxLength(32);
+
+            entidad.HasIndex(codigo => codigo.HashCodigo);
+
+            entidad.Property(codigo => codigo.FechaEmision)
+                .IsRequired();
+            entidad.Property(codigo => codigo.FechaVencimiento)
+                .IsRequired();
+            entidad.Property(codigo => codigo.Usado)
+                .IsRequired();
+
+            entidad.HasOne(codigo => codigo.Usuario)
+                .WithMany()
+                .HasForeignKey(codigo => codigo.UsuarioId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
     }
