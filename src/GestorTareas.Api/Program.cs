@@ -35,6 +35,7 @@ builder.Services.AddSingleton(new OpcionesActivacion(urlBase));
 builder.Services.AddScoped<ServicioRegistro>();
 builder.Services.AddScoped<ServicioActivacion>();
 builder.Services.AddScoped<ServicioRecuperacion>();
+builder.Services.AddScoped<ServicioContrasenas>();
 builder.Services.AddScoped<ServicioSesion>();
 builder.Services.AddScoped<ServicioAutenticacion>();
 builder.Services.AddScoped<InicializadorAdministrador>();
@@ -205,6 +206,42 @@ app.MapPost("/api/contrasena/recuperar", async (
     {
         mensaje = "Si el correo está registrado, recibirás un código para restablecer tu contraseña."
     });
+})
+    .AllowAnonymous();
+
+app.MapPost("/api/contrasena/restablecer", async (
+    SolicitudRestablecimiento? solicitud,
+    ServicioRecuperacion servicioRecuperacion) =>
+{
+    if (solicitud is null)
+    {
+        return Results.BadRequest(new { error = "El cuerpo de la solicitud es obligatorio." });
+    }
+
+    if (string.IsNullOrWhiteSpace(solicitud.Codigo))
+    {
+        return Results.BadRequest(new { error = "El código es obligatorio." });
+    }
+
+    if (string.IsNullOrEmpty(solicitud.ContrasenaNueva))
+    {
+        return Results.BadRequest(new { error = "La contraseña es obligatoria." });
+    }
+
+    ResultadoRestablecimiento resultado = await servicioRecuperacion.RestablecerAsync(
+        solicitud.Codigo,
+        solicitud.ContrasenaNueva);
+
+    return resultado.Estado switch
+    {
+        EstadoRestablecimiento.Exitoso => Results.Ok(new
+        {
+            mensaje = "Tu contraseña se actualizó. Inicia sesión con la nueva contraseña."
+        }),
+        EstadoRestablecimiento.DatosInvalidos => Results.BadRequest(new { error = resultado.Errores[0] }),
+        EstadoRestablecimiento.CodigoInvalido => Results.BadRequest(new { error = resultado.Errores[0] }),
+        _ => Results.BadRequest(new { error = "No se pudo restablecer la contraseña." })
+    };
 })
     .AllowAnonymous();
 
@@ -425,6 +462,8 @@ public sealed record SolicitudRegistro(
 public sealed record SolicitudReenvio(string? Correo);
 
 public sealed record SolicitudRecuperacion(string? Correo);
+
+public sealed record SolicitudRestablecimiento(string? Codigo, string? ContrasenaNueva);
 
 public sealed record SolicitudInicioSesion(string? Correo, string? Contrasena);
 

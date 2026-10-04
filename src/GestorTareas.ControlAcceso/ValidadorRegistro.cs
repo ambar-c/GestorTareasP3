@@ -49,32 +49,7 @@ public static class ValidadorRegistro
             errores.Add("El correo no tiene un formato válido.");
         }
 
-        if (string.IsNullOrEmpty(contrasena))
-        {
-            errores.Add("La contraseña es obligatoria.");
-        }
-        else
-        {
-            if (contrasena.Length < 8)
-            {
-                errores.Add("La contraseña debe tener al menos 8 caracteres.");
-            }
-
-            if (contrasena.Length > 128)
-            {
-                errores.Add("La contraseña no debe superar los 128 caracteres.");
-            }
-
-            if (!contrasena.Any(char.IsLetter))
-            {
-                errores.Add("La contraseña debe incluir al menos una letra.");
-            }
-
-            if (!contrasena.Any(char.IsDigit))
-            {
-                errores.Add("La contraseña debe incluir al menos un número.");
-            }
-        }
+        errores.AddRange(ValidarContrasena(contrasena));
 
         return new ResultadoValidacionRegistro(correoNormalizado, errores.AsReadOnly());
     }
@@ -119,6 +94,40 @@ public static class ValidadorRegistro
         return new ResultadoValidacionRegistro(
             validacionCorreo.CorreoNormalizado,
             errores.AsReadOnly());
+    }
+
+    public static IReadOnlyList<string> ValidarContrasena(string? contrasena)
+    {
+        var errores = new List<string>();
+
+        if (string.IsNullOrEmpty(contrasena))
+        {
+            errores.Add("La contraseña es obligatoria.");
+        }
+        else
+        {
+            if (contrasena.Length < 8)
+            {
+                errores.Add("La contraseña debe tener al menos 8 caracteres.");
+            }
+
+            if (contrasena.Length > 128)
+            {
+                errores.Add("La contraseña no debe superar los 128 caracteres.");
+            }
+
+            if (!contrasena.Any(char.IsLetter))
+            {
+                errores.Add("La contraseña debe incluir al menos una letra.");
+            }
+
+            if (!contrasena.Any(char.IsDigit))
+            {
+                errores.Add("La contraseña debe incluir al menos un número.");
+            }
+        }
+
+        return errores.AsReadOnly();
     }
 
     private static bool EsCorreoValido(string correo)

@@ -7,7 +7,8 @@ namespace GestorTareas.ControlAcceso;
 public sealed class ServicioRecuperacion(
     ContextoControlAcceso contexto,
     IColaCorreos colaCorreos,
-    ILogger<ServicioRecuperacion> logger)
+    ILogger<ServicioRecuperacion> logger,
+    ServicioContrasenas servicioContrasenas)
 {
     public async Task EmitirCodigoAsync(Usuario usuario)
     {
@@ -59,4 +60,76 @@ public sealed class ServicioRecuperacion(
             await EmitirCodigoAsync(usuario);
         }
     }
+
+    public async Task<ResultadoRestablecimiento> RestablecerAsync(
+        string? codigo,
+        string? contrasenaNueva)
+    {
+        if (string.IsNullOrWhiteSpace(codigo))
+        {
+            return ResultadoRestablecimiento.CodigoInvalido();
+        }
+
+        byte[] hashCodigo = GeneradorTokenActivacion.Hashear(codigo);
+        DateTime ahora = DateTime.UtcNow;
+        CodigoRecuperacion? codigoRecuperacion = await contexto.CodigosRecuperacion
+            .Include(codigoAlmacenado => codigoAlmacenado.Usuario)
+            .SingleOrDefaultAsync(codigoAlmacenado =>
+                codigoAlmacenado.HashCodigo == hashCodigo
+                && !codigoAlmacenado.Usado
+                && codigoAlmacenado.FechaVencimiento > ahora
+                && codigoAlmacenado.Usuario.Activo
+                && !codigoAlmacenado.Usuario.Desactivado);
+
+        if (codigoRecuperacion is null)
+        {
+            return ResultadoRestablecimiento.CodigoInvalido();
+        }
+
+        IReadOnlyList<string> erroresContrasena =
+            ValidadorRegistro.ValidarContrasena(contrasenaNueva);
+        if (erroresContrasena.Count > 0)
+        {
+            return ResultadoRestablecimiento.DatosInvalidos(erroresContrasena);
+        }
+
+        await using Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction transaccion =
+            await contexto.Database.BeginTransactionAsync();
+
+        codigoRecuperacion.Usado = true;
+        ResultadoEstablecerContrasena resultado = await servicioContrasenas
+            .EstablecerContrasenaAsync(codigoRecuperacion.Usuario, contrasenaNueva);
+
+        if (!resultado.Exitoso)
+        {
+            await transaccion.RollbackAsync();
+            return ResultadoRestablecimiento.DatosInvalidos(resultado.Errores);
+        }
+
+        await transaccion.CommitAsync();
+        return ResultadoRestablecimiento.Exitoso();
+    }
+}
+
+public enum EstadoRestablecimiento
+{
+    Exitoso,
+    DatosInvalidos,
+    CodigoInvalido
+}
+
+public sealed record ResultadoRestablecimiento(
+    EstadoRestablecimiento Estado,
+    IReadOnlyList<string> Errores)
+{
+    private const string MensajeCodigoInvalido = "El código no es válido o ha vencido.";
+
+    public static ResultadoRestablecimiento Exitoso() =>
+        new(EstadoRestablecimiento.Exitoso, Array.Empty<string>());
+
+    public static ResultadoRestablecimiento DatosInvalidos(IReadOnlyList<string> errores) =>
+        new(EstadoRestablecimiento.DatosInvalidos, errores);
+
+    public static ResultadoRestablecimiento CodigoInvalido() =>
+        new(EstadoRestablecimiento.CodigoInvalido, [MensajeCodigoInvalido]);
 }
