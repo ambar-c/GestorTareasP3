@@ -26,6 +26,14 @@ public sealed record ResultadoCambioEstadoUsuario(
     string? Motivo,
     Usuario? Usuario);
 
+public sealed record UsuarioResumen(
+    Guid Id,
+    string Nombre,
+    string Correo,
+    Rol Rol,
+    bool Activo,
+    bool Desactivado);
+
 public sealed class ServicioUsuarios(
     ContextoControlAcceso contexto,
     ServicioSesion servicioSesion)
@@ -118,5 +126,19 @@ public sealed class ServicioUsuarios(
             EstadoCambioEstadoUsuario.Exitoso,
             null,
             usuario);
+    }
+
+    public Task<List<UsuarioResumen>> ListarAsync()
+    {
+        return contexto.Usuarios
+            .OrderBy(usuario => usuario.Correo)
+            .Select(usuario => new UsuarioResumen(
+                usuario.Id,
+                usuario.Nombre,
+                usuario.Correo,
+                usuario.Rol,
+                usuario.Activo,
+                usuario.Desactivado))
+            .ToListAsync();
     }
 }

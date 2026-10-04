@@ -275,6 +275,21 @@ app.MapPut("/api/usuarios/{id}/rol", async (
 })
     .RequireAuthorization(Politicas.Administrador);
 
+app.MapGet("/api/usuarios", async (ServicioUsuarios servicioUsuarios) =>
+{
+    List<UsuarioResumen> usuarios = await servicioUsuarios.ListarAsync();
+    return Results.Ok(usuarios.Select(usuario => new
+    {
+        id = usuario.Id,
+        nombre = usuario.Nombre,
+        correo = usuario.Correo,
+        rol = usuario.Rol.ToString(),
+        activo = usuario.Activo,
+        desactivado = usuario.Desactivado
+    }));
+})
+    .RequireAuthorization(Politicas.Administrador);
+
 app.MapPost("/api/usuarios/{id}/desactivar", async (
     string id,
     ClaimsPrincipal administrador,
