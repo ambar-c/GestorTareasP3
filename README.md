@@ -77,6 +77,7 @@ Abre `.env` y define:
 - `SMTP_CLAVE`: la contraseña de aplicación de esa cuenta, sin espacios.
 - `SMTP_HOST`, `SMTP_PUERTO` y `SMTP_NOMBRE_REMITENTE` ya traen un valor útil en la plantilla.
 - `APP_URL_BASE`: ya trae `http://localhost:5065` en la plantilla; cámbiala solo si usas otro puerto.
+- `ADMIN_NOMBRE`, `ADMIN_CORREO` y `ADMIN_CLAVE`: los datos del Administrador inicial, que se crea al arrancar la API. La clave debe cumplir la política de contraseña (8 o más caracteres, con letras y números).
 
 El archivo `.env` está en `.gitignore` y nunca se sube al repositorio.
 
@@ -114,6 +115,12 @@ Luego crea la tabla de la cola de correos:
 
 ```powershell
 dotnet ef database update --project src/GestorTareas.Notificaciones
+```
+
+Y crea las tablas del módulo de negocio:
+
+```powershell
+dotnet ef database update --project src/GestorTareas.Negocio
 ```
 
 Para apagar la base sin perder los datos: `docker compose down`. No uses `docker compose down -v`, que borra el volumen con los datos.
@@ -487,6 +494,18 @@ este README.
 ```powershell
 $base = "http://localhost:5065"
 ```
+#### Obtener los identificadores
+
+Varios comandos usan `$idUsuario` y `$idAdmin`. Después de iniciar sesión como Administrador (`$tokenAdmin`, en la sección siguiente), obtenlos del listado:
+
+```powershell
+$usuarios = Invoke-RestMethod -Uri "$base/api/usuarios" -Headers @{ Authorization = "Bearer $tokenAdmin" }
+$usuarios | Format-Table id, correo, rol, activo, desactivado
+$idAdmin = ($usuarios | Where-Object correo -eq "admin@example.com").id
+$idUsuario = ($usuarios | Where-Object correo -eq "usuario@example.com").id
+```
+
+Reemplaza los correos por los que usaste. El restablecimiento forzado de la sección «Contraseñas» (RF-CA-13) usa estos mismos `$tokenAdmin` y `$idUsuario`.
 
 #### Administrador inicial (RF-CA-04)
 
@@ -596,3 +615,23 @@ curl.exe -i "$base/api/usuarios" -H "Authorization: Bearer $tokenAdmin"
 
 Respuesta esperada: `200` y un arreglo cuyos únicos campos son `id`, `nombre`, `correo`,
 `rol`, `activo` y `desactivado`; nunca aparecen hashes, sales, tokens ni vencimientos.
+
+## Máquina de estados del negocio
+
+La entidad central del módulo de negocio es `Tarea`, con 4 estados: Pendiente, EnProgreso, Completada y Cancelada. La tabla de transiciones, la transición prohibida, los estados terminales y el diagrama están en [`docs/maquina-de-estados.md`](docs/maquina-de-estados.md).
+
+| Qué | Dónde |
+|---|---|
+| Estados, en un solo lugar (RF-NEG-03) | `src/GestorTareas.Negocio/Entidades/EstadoTarea.cs` |
+| Transiciones, en un solo lugar (RD-04), con la prohibida (RF-NEG-04) y los terminales (RF-NEG-05) | `src/GestorTareas.Negocio/Estados/MaquinaEstadosTarea.cs` |
+| Única forma de cambiar el estado | `Tarea.CambiarEstado` en `src/GestorTareas.Negocio/Entidades/Tarea.cs` |
+
+Para comprobar que la entidad existe en el modelo de datos, ejecuta en SSMS:
+
+```sql
+USE GestorTareas;
+SELECT COLUMN_NAME, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH
+FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'Tareas';
+```
+
+`Estado` aparece como `nvarchar(20)`. Las pruebas de esta máquina y sus endpoints llegan en la semana 8.
