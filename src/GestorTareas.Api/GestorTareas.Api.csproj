@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\GestorTareas.ControlAcceso\GestorTareas.ControlAcceso.csproj" />
+    <ProjectReference Include="..\GestorTareas.GestionPermisos\GestorTareas.GestionPermisos.csproj" />
     <ProjectReference Include="..\GestorTareas.Notificaciones\GestorTareas.Notificaciones.csproj" />
     <ProjectReference Include="..\GestorTareas.Negocio\GestorTareas.Negocio.csproj" />
   </ItemGroup>
