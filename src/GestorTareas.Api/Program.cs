@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using GestorTareas.Api;
 using GestorTareas.ControlAcceso;
+using GestorTareas.GestionPermisos;
 using GestorTareas.Notificaciones;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Diagnostics;
@@ -19,6 +20,10 @@ if (string.IsNullOrWhiteSpace(cadenaConexion))
 
 builder.Services.AddDbContext<ContextoControlAcceso>(opciones =>
     opciones.UseSqlServer(cadenaConexion));
+builder.Services.AddDbContext<ContextoGestionPermisos>(opciones =>
+    opciones.UseSqlServer(
+        cadenaConexion,
+        opcionesSql => opcionesSql.MigrationsHistoryTable("__EFMigrationsHistory_GestionPermisos")));
 builder.Services.AddDbContext<ContextoNotificaciones>(opciones =>
     opciones.UseSqlServer(
         cadenaConexion,
