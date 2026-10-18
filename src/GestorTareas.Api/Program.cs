@@ -45,6 +45,7 @@ builder.Services.AddScoped<ServicioSesion>();
 builder.Services.AddScoped<ServicioAutenticacion>();
 builder.Services.AddScoped<InicializadorAdministrador>();
 builder.Services.AddScoped<ServicioUsuarios>();
+builder.Services.AddScoped<ServicioSolicitudesPermiso>();
 builder.Services.AddAuthentication("Token")
     .AddScheme<AuthenticationSchemeOptions, ManejadorAutenticacionToken>("Token", _ => { });
 builder.Services.AddAuthorization(opciones =>
@@ -288,6 +289,61 @@ app.MapPut("/api/contrasena", async (
             mensaje = "Tu contraseña se actualizó. Inicia sesión de nuevo."
         })
         : Results.BadRequest(new { error = resultado.Errores[0] });
+})
+    .RequireAuthorization(Politicas.Autenticado);
+
+app.MapPost("/api/solicitudes-permisos", async (
+    SolicitudCrearPermiso? solicitud,
+    ClaimsPrincipal usuarioAutenticado,
+    ServicioSolicitudesPermiso servicioSolicitudesPermiso) =>
+{
+    if (solicitud is null)
+    {
+        return Results.BadRequest(new { error = "El cuerpo de la solicitud es obligatorio." });
+    }
+
+    if (!Guid.TryParse(
+        usuarioAutenticado.FindFirstValue(ClaimTypes.NameIdentifier),
+        out Guid idSolicitante))
+    {
+        return Results.BadRequest(new { error = "La identidad del usuario no es válida." });
+    }
+
+    ResultadoCrearSolicitudPermiso resultado = await servicioSolicitudesPermiso.CrearAsync(
+        idSolicitante,
+        solicitud.Permiso);
+
+    return resultado.Exito
+        ? Results.Created(
+            $"/api/solicitudes-permisos/{resultado.Solicitud!.Id}",
+            resultado.Solicitud)
+        : Results.BadRequest(new { error = resultado.Error });
+})
+    .RequireAuthorization(Politicas.Autenticado);
+
+app.MapGet("/api/solicitudes-permisos/pendientes", async (
+    ServicioSolicitudesPermiso servicioSolicitudesPermiso) =>
+{
+    List<GestorTareas.GestionPermisos.Entidades.SolicitudPermiso> solicitudes =
+        await servicioSolicitudesPermiso.ListarPendientesAsync();
+    return Results.Ok(solicitudes);
+})
+    .RequireAuthorization(Politicas.Administrador);
+
+app.MapGet("/api/solicitudes-permisos", async (
+    ClaimsPrincipal usuarioAutenticado,
+    ServicioSolicitudesPermiso servicioSolicitudesPermiso) =>
+{
+    if (!Guid.TryParse(
+        usuarioAutenticado.FindFirstValue(ClaimTypes.NameIdentifier),
+        out Guid idSolicitante))
+    {
+        return Results.BadRequest(new { error = "La identidad del usuario no es válida." });
+    }
+
+    List<GestorTareas.GestionPermisos.Entidades.SolicitudPermiso> solicitudes =
+        await servicioSolicitudesPermiso.ListarPropiasAsync(idSolicitante);
+    return Results.Ok(solicitudes);
 })
     .RequireAuthorization(Politicas.Autenticado);
 
@@ -551,3 +607,5 @@ public sealed record SolicitudCambioContrasena(string? ContrasenaActual, string?
 public sealed record SolicitudInicioSesion(string? Correo, string? Contrasena);
 
 public sealed record SolicitudCambioRol(string? Rol);
+
+public sealed record SolicitudCrearPermiso(string? Permiso);
