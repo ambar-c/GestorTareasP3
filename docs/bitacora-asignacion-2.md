@@ -277,6 +277,29 @@ dependen del orden.
 
 ---
 
+## Caso de error detectado y corregido — Orden del README
+**Fecha:** 20 de octubre, 2026
+**Qué le pedí:** Agregar al README cómo provocar cada criterio de RF-GP-01 a
+RF-GP-07 con el comando exacto y el resultado esperado, y la sección Pruebas.
+**Qué devolvió (el error):** Documentó cada criterio por separado. En RF-GP-03
+aprobaba la solicitud del usuario Estándar, y después en RF-GP-05, con el
+mismo usuario, pedía crear un proyecto "antes de aprobar" esperando 403. Pero
+al aprobar en RF-GP-03 el usuario ya recibe CrearProyecto y el permiso queda
+guardado, así que en RF-GP-05 iba a dar 201. Siguiendo el README en orden,
+RF-GP-05 parecería roto aunque el código esté bien. Además, los Id de las
+solicitudes había que copiarlos a mano, y $idSolicitudRechazada y
+$idSolicitudAdmin aparecían sin decir de dónde salían.
+**Cómo lo detecté:** Revisé el flujo del README contra cómo funciona mi código:
+el permiso se guarda en PermisosOtorgados por usuario y no se quita, así que el
+orden de los pasos importa. Ya lo había visto en mis pruebas con curl, donde el
+mismo token pasó de 403 a 201 solo después de aprobar.
+**Cómo lo corregí:** Le expliqué el problema y le pedí unir RF-GP-03 y
+RF-GP-05 en un solo flujo (403, aprobar, 201 con el mismo token), con una nota
+de que para repetir el 403 hace falta otra cuenta Estándar, y que cada Id se
+guarde automáticamente con Invoke-RestMethod en vez de copiarlo a mano.
+
+---
+
 ## Fuentes consultadas en esta asignación
 - Bill Wake, «3A: Arrange, Act, Assert»: la estructura Preparar, Actuar y
   Verificar de cada prueba.
