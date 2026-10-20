@@ -10,6 +10,20 @@ public sealed record ResultadoCrearSolicitudPermiso(
     string? Error,
     SolicitudPermiso? Solicitud);
 
+public enum EstadoResolucionSolicitudPermiso
+{
+    Exitoso,
+    SolicitudNoEncontrada,
+    MismoSolicitante,
+    TransicionNoValida,
+    MotivoRechazoInvalido
+}
+
+public sealed record ResultadoResolucionSolicitudPermiso(
+    EstadoResolucionSolicitudPermiso Estado,
+    string? Motivo,
+    SolicitudPermiso? Solicitud);
+
 public sealed class ServicioSolicitudesPermiso(ContextoGestionPermisos contexto)
 {
     public async Task<ResultadoCrearSolicitudPermiso> CrearAsync(
@@ -42,6 +56,107 @@ public sealed class ServicioSolicitudesPermiso(ContextoGestionPermisos contexto)
         await contexto.SaveChangesAsync();
 
         return new ResultadoCrearSolicitudPermiso(true, null, solicitud);
+    }
+
+    public async Task<ResultadoResolucionSolicitudPermiso> AprobarAsync(
+        Guid idSolicitud,
+        Guid idAdministrador)
+    {
+        SolicitudPermiso? solicitud = await contexto.SolicitudesPermiso
+            .SingleOrDefaultAsync(solicitud => solicitud.Id == idSolicitud);
+
+        if (solicitud is null)
+        {
+            return new ResultadoResolucionSolicitudPermiso(
+                EstadoResolucionSolicitudPermiso.SolicitudNoEncontrada,
+                "Solicitud de permiso no encontrada.",
+                null);
+        }
+
+        if (solicitud.IdSolicitante == idAdministrador)
+        {
+            return new ResultadoResolucionSolicitudPermiso(
+                EstadoResolucionSolicitudPermiso.MismoSolicitante,
+                "El Administrador no puede resolver su propia solicitud.",
+                null);
+        }
+
+        if (!MaquinaEstadosSolicitud.EsTransicionValida(
+                solicitud.Estado,
+                EstadoSolicitudPermiso.Aprobada))
+        {
+            return new ResultadoResolucionSolicitudPermiso(
+                EstadoResolucionSolicitudPermiso.TransicionNoValida,
+                "La transición de estado no es válida.",
+                null);
+        }
+
+        solicitud.Estado = EstadoSolicitudPermiso.Aprobada;
+        solicitud.IdAprobador = idAdministrador;
+        solicitud.FechaResolucion = DateTime.UtcNow;
+
+        await contexto.SaveChangesAsync();
+
+        return new ResultadoResolucionSolicitudPermiso(
+            EstadoResolucionSolicitudPermiso.Exitoso,
+            null,
+            solicitud);
+    }
+
+    public async Task<ResultadoResolucionSolicitudPermiso> RechazarAsync(
+        Guid idSolicitud,
+        Guid idAdministrador,
+        string? motivo)
+    {
+        SolicitudPermiso? solicitud = await contexto.SolicitudesPermiso
+            .SingleOrDefaultAsync(solicitud => solicitud.Id == idSolicitud);
+
+        if (solicitud is null)
+        {
+            return new ResultadoResolucionSolicitudPermiso(
+                EstadoResolucionSolicitudPermiso.SolicitudNoEncontrada,
+                "Solicitud de permiso no encontrada.",
+                null);
+        }
+
+        if (solicitud.IdSolicitante == idAdministrador)
+        {
+            return new ResultadoResolucionSolicitudPermiso(
+                EstadoResolucionSolicitudPermiso.MismoSolicitante,
+                "El Administrador no puede resolver su propia solicitud.",
+                null);
+        }
+
+        if (!MaquinaEstadosSolicitud.EsTransicionValida(
+                solicitud.Estado,
+                EstadoSolicitudPermiso.Rechazada))
+        {
+            return new ResultadoResolucionSolicitudPermiso(
+                EstadoResolucionSolicitudPermiso.TransicionNoValida,
+                "La transición de estado no es válida.",
+                null);
+        }
+
+        string? motivoNormalizado = motivo?.Trim();
+        if (string.IsNullOrWhiteSpace(motivoNormalizado))
+        {
+            return new ResultadoResolucionSolicitudPermiso(
+                EstadoResolucionSolicitudPermiso.MotivoRechazoInvalido,
+                "Debes indicar el motivo del rechazo.",
+                null);
+        }
+
+        solicitud.Estado = EstadoSolicitudPermiso.Rechazada;
+        solicitud.IdAprobador = idAdministrador;
+        solicitud.FechaResolucion = DateTime.UtcNow;
+        solicitud.MotivoRechazo = motivoNormalizado;
+
+        await contexto.SaveChangesAsync();
+
+        return new ResultadoResolucionSolicitudPermiso(
+            EstadoResolucionSolicitudPermiso.Exitoso,
+            null,
+            solicitud);
     }
 
     public Task<List<SolicitudPermiso>> ListarPendientesAsync()
