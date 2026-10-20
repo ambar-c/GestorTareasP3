@@ -91,9 +91,34 @@ public sealed class ServicioSolicitudesPermiso(ContextoGestionPermisos contexto)
                 null);
         }
 
-        solicitud.Estado = EstadoSolicitudPermiso.Aprobada;
+        if (!MaquinaEstadosSolicitud.EsTransicionValida(
+                EstadoSolicitudPermiso.Aprobada,
+                EstadoSolicitudPermiso.Aplicada))
+        {
+            return new ResultadoResolucionSolicitudPermiso(
+                EstadoResolucionSolicitudPermiso.TransicionNoValida,
+                "La transición de estado no es válida.",
+                null);
+        }
+
+        bool yaTienePermiso = await TienePermisoAsync(
+            solicitud.IdSolicitante,
+            solicitud.PermisoSolicitado);
+
+        solicitud.Estado = EstadoSolicitudPermiso.Aplicada;
         solicitud.IdAprobador = idAdministrador;
         solicitud.FechaResolucion = DateTime.UtcNow;
+
+        if (!yaTienePermiso)
+        {
+            contexto.PermisosOtorgados.Add(new PermisoOtorgado
+            {
+                Id = Guid.NewGuid(),
+                IdUsuario = solicitud.IdSolicitante,
+                Permiso = solicitud.PermisoSolicitado,
+                FechaOtorgamiento = DateTime.UtcNow
+            });
+        }
 
         await contexto.SaveChangesAsync();
 
@@ -101,6 +126,16 @@ public sealed class ServicioSolicitudesPermiso(ContextoGestionPermisos contexto)
             EstadoResolucionSolicitudPermiso.Exitoso,
             null,
             solicitud);
+    }
+
+    public Task<bool> TienePermisoAsync(
+        Guid idUsuario,
+        Permiso permiso)
+    {
+        return contexto.PermisosOtorgados
+            .AnyAsync(permisoOtorgado =>
+                permisoOtorgado.IdUsuario == idUsuario
+                && permisoOtorgado.Permiso == permiso);
     }
 
     public async Task<ResultadoResolucionSolicitudPermiso> RechazarAsync(
