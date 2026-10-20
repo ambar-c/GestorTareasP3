@@ -3,6 +3,7 @@ using GestorTareas.Api;
 using GestorTareas.ControlAcceso;
 using GestorTareas.GestionPermisos;
 using GestorTareas.Notificaciones;
+using GestorTareas.Negocio;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.EntityFrameworkCore;
@@ -28,6 +29,10 @@ builder.Services.AddDbContext<ContextoNotificaciones>(opciones =>
     opciones.UseSqlServer(
         cadenaConexion,
         opcionesSql => opcionesSql.MigrationsHistoryTable("__EFMigrationsHistory_Notificaciones")));
+builder.Services.AddDbContext<NegocioDbContext>(opciones =>
+    opciones.UseSqlServer(
+        cadenaConexion,
+        opcionesSql => opcionesSql.MigrationsHistoryTable("__EFMigrationsHistory_Negocio")));
 builder.Services.AddScoped<IColaCorreos, ColaCorreos>();
 
 var urlBase = builder.Configuration["APP_URL_BASE"];
@@ -46,6 +51,9 @@ builder.Services.AddScoped<ServicioAutenticacion>();
 builder.Services.AddScoped<InicializadorAdministrador>();
 builder.Services.AddScoped<ServicioUsuarios>();
 builder.Services.AddScoped<ServicioSolicitudesPermiso>();
+builder.Services.AddScoped<ServicioProyectos>();
+builder.Services.AddScoped<Microsoft.AspNetCore.Authorization.IAuthorizationHandler,
+    ManejadorAutorizacionCrearProyecto>();
 builder.Services.AddAuthentication("Token")
     .AddScheme<AuthenticationSchemeOptions, ManejadorAutenticacionToken>("Token", _ => { });
 builder.Services.AddAuthorization(opciones =>
@@ -54,6 +62,9 @@ builder.Services.AddAuthorization(opciones =>
     opciones.AddPolicy(Politicas.Administrador, politica => politica
         .RequireAuthenticatedUser()
         .RequireRole("Administrador"));
+    opciones.AddPolicy(Politicas.CrearProyecto, politica => politica
+        .RequireAuthenticatedUser()
+        .AddRequirements(new RequisitoCrearProyecto()));
 });
 
 var app = builder.Build();
@@ -415,6 +426,35 @@ app.MapGet("/api/solicitudes-permisos", async (
 })
     .RequireAuthorization(Politicas.Autenticado);
 
+app.MapPost("/api/proyectos", async (
+    SolicitudCrearProyecto? solicitud,
+    ClaimsPrincipal usuarioAutenticado,
+    ServicioProyectos servicioProyectos) =>
+{
+    if (solicitud is null)
+    {
+        return Results.BadRequest(new { error = "El cuerpo de la solicitud es obligatorio." });
+    }
+
+    if (!Guid.TryParse(
+        usuarioAutenticado.FindFirstValue(ClaimTypes.NameIdentifier),
+        out Guid idUsuarioCreador))
+    {
+        return Results.BadRequest(new { error = "La identidad del usuario no es válida." });
+    }
+
+    ResultadoCrearProyecto resultado = await servicioProyectos.CrearAsync(
+        idUsuarioCreador,
+        solicitud.Nombre);
+
+    return resultado.Exito
+        ? Results.Created(
+            $"/api/proyectos/{resultado.Proyecto!.Id}",
+            resultado.Proyecto)
+        : Results.BadRequest(new { error = resultado.Error });
+})
+    .RequireAuthorization(Politicas.CrearProyecto);
+
 app.MapPost("/api/registro", async (
     SolicitudRegistro? solicitud,
     ServicioRegistro servicioRegistro) =>
@@ -679,3 +719,5 @@ public sealed record SolicitudCambioRol(string? Rol);
 public sealed record SolicitudCrearPermiso(string? Permiso);
 
 public sealed record SolicitudRechazarPermiso(string? Motivo);
+
+public sealed record SolicitudCrearProyecto(string? Nombre);

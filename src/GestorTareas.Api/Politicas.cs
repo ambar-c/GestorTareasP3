@@ -4,4 +4,5 @@ public static class Politicas
 {
     public const string Autenticado = "Autenticado";
     public const string Administrador = "Administrador";
+    public const string CrearProyecto = "CrearProyecto";
 }
