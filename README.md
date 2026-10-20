@@ -123,6 +123,12 @@ Y crea las tablas del módulo de negocio:
 dotnet ef database update --project src/GestorTareas.Negocio
 ```
 
+Si todavía no se han aplicado las migraciones de Gestión de permisos, ejecuta:
+
+```powershell
+dotnet ef database update --project src/GestorTareas.GestionPermisos
+```
+
 Para apagar la base sin perder los datos: `docker compose down`. No uses `docker compose down -v`, que borra el volumen con los datos.
 
 ### 3. Ejecutar la API
@@ -635,3 +641,181 @@ FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'Tareas';
 ```
 
 `Estado` aparece como `nvarchar(20)`. Las pruebas de esta máquina y sus endpoints llegan en la semana 8.
+
+## Gestión de permisos
+
+Las siguientes comprobaciones se ejecutan en otra ventana de Windows PowerShell 5.1,
+con la API corriendo en `http://localhost:5065`. Usa cuentas activas y reemplaza los
+marcadores por tus propios datos; no escribas correos ni contraseñas reales en este
+README.
+
+```powershell
+$base = "http://localhost:5065"
+$tokenEstandar = (Invoke-RestMethod -Uri "$base/api/login" -Method Post -ContentType "application/json" -Body '{"correo":"TU_CORREO","contrasena":"TU_CLAVE"}').token
+$tokenAdmin = (Invoke-RestMethod -Uri "$base/api/login" -Method Post -ContentType "application/json" -Body '{"correo":"TU_CORREO_ADMIN","contrasena":"TU_CLAVE_ADMIN"}').token
+```
+
+Para cada caso que cambie el estado, usa una solicitud distinta.
+
+| Estado | Valor |
+| --- | ---: |
+| Pendiente | 0 |
+| Aprobada | 1 |
+| Aplicada | 2 |
+| Rechazada | 3 |
+
+### RF-GP-01: crear una solicitud
+
+Con el token de un usuario Estándar, solicita el permiso `CrearProyecto` y guarda
+directamente el identificador devuelto:
+
+```powershell
+$idSolicitud = (Invoke-RestMethod -Uri "$base/api/solicitudes-permisos" -Method Post -ContentType "application/json" -Headers @{ Authorization = "Bearer $tokenEstandar" } -Body '{"permiso":"CrearProyecto"}').id
+```
+
+Resultado esperado: `201 Created`, con la solicitud creada y `"estado":0`.
+Esta es la solicitud que se usará en el flujo conjunto de RF-GP-03 y RF-GP-05.
+
+### RF-GP-02: consultar solicitudes
+
+El usuario puede consultar sus propias solicitudes:
+
+```powershell
+curl.exe -i "$base/api/solicitudes-permisos" -H "Authorization: Bearer $tokenEstandar"
+```
+
+Resultado esperado: `200 OK`, con un arreglo que contiene únicamente las solicitudes
+del usuario de la sesión; nunca aparecen las solicitudes de otros usuarios.
+
+El Administrador puede consultar las solicitudes pendientes:
+
+```powershell
+curl.exe -i "$base/api/solicitudes-permisos/pendientes" -H "Authorization: Bearer $tokenAdmin"
+```
+
+Resultado esperado: `200 OK`, con las solicitudes cuyo estado es `0` (`Pendiente`).
+Un usuario Estándar no puede consultar ese listado:
+
+```powershell
+curl.exe -i "$base/api/solicitudes-permisos/pendientes" -H "Authorization: Bearer $tokenEstandar"
+```
+
+Resultado esperado: `403 Forbidden`.
+
+### RF-GP-03 y RF-GP-05: aprobar y aplicar automáticamente el permiso
+
+Continúa con `$idSolicitud`, la solicitud Pendiente creada en RF-GP-01. Primero intenta
+crear un proyecto con el token del usuario Estándar:
+
+```powershell
+$cuerpoProyecto = @{ nombre = "Proyecto de prueba" } | ConvertTo-Json
+Invoke-WebRequest -Uri "$base/api/proyectos" -Method Post -Headers @{ Authorization = "Bearer $tokenEstandar" } -ContentType "application/json" -Body $cuerpoProyecto -UseBasicParsing
+```
+
+Resultado esperado antes de aprobar: `403 Forbidden`.
+
+Aprueba la solicitud con el Administrador:
+
+```powershell
+curl.exe -i -X POST "$base/api/solicitudes-permisos/$idSolicitud/aprobar" -H "Authorization: Bearer $tokenAdmin"
+```
+
+Resultado esperado: `200 OK`; la respuesta muestra `"estado":2`, `idAprobador` con
+el identificador del Administrador y `fechaResolucion` con una fecha.
+
+Repite exactamente la petición de creación de proyecto anterior con `$tokenEstandar`,
+sin iniciar sesión de nuevo.
+
+Resultado esperado después de aprobar: `201 Created`; el proyecto se crea. El permiso
+queda guardado por usuario, así que para repetir el `403` hay que usar otra cuenta
+Estándar que nunca haya tenido una solicitud aprobada.
+
+### RF-GP-04: rechazar una solicitud
+
+Primero crea y guarda directamente una solicitud distinta para el rechazo:
+
+```powershell
+$idSolicitudRechazo = (Invoke-RestMethod -Uri "$base/api/solicitudes-permisos" -Method Post -ContentType "application/json" -Headers @{ Authorization = "Bearer $tokenEstandar" } -Body '{"permiso":"CrearProyecto"}').id
+```
+
+Con esa solicitud Pendiente, recházala con un motivo. Como el cuerpo contiene espacios,
+constrúyelo con `ConvertTo-Json`:
+
+```powershell
+$cuerpoRechazo = @{ motivo = "No cumple los requisitos" } | ConvertTo-Json
+Invoke-WebRequest -Uri "$base/api/solicitudes-permisos/$idSolicitudRechazo/rechazar" -Method Post -Headers @{ Authorization = "Bearer $tokenAdmin" } -ContentType "application/json" -Body $cuerpoRechazo -UseBasicParsing
+```
+
+Resultado esperado: `200 OK`, con `"estado":3` y el motivo guardado.
+
+Para comprobar el rechazo sin motivo, crea y guarda directamente otra solicitud Pendiente:
+
+```powershell
+$idSolicitudMotivoVacio = (Invoke-RestMethod -Uri "$base/api/solicitudes-permisos" -Method Post -ContentType "application/json" -Headers @{ Authorization = "Bearer $tokenEstandar" } -Body '{"permiso":"CrearProyecto"}').id
+```
+
+Intenta rechazarla con un motivo compuesto solo por espacios:
+
+```powershell
+$cuerpoRechazoVacio = @{ motivo = "   " } | ConvertTo-Json
+Invoke-WebRequest -Uri "$base/api/solicitudes-permisos/$idSolicitudMotivoVacio/rechazar" -Method Post -Headers @{ Authorization = "Bearer $tokenAdmin" } -ContentType "application/json" -Body $cuerpoRechazoVacio -UseBasicParsing
+```
+
+Resultado esperado: `400 Bad Request`; esa solicitud sigue en estado `0` (`Pendiente`).
+
+### RF-GP-06: impedir transiciones inválidas
+
+Aprueba una solicitud Pendiente y repite la aprobación:
+
+```powershell
+curl.exe -i -X POST "$base/api/solicitudes-permisos/$idSolicitud/aprobar" -H "Authorization: Bearer $tokenAdmin"
+```
+
+Resultado esperado en la segunda aprobación: `409 Conflict`; el estado sigue en `2`
+(`Aplicada`).
+
+Primero crea y guarda directamente otra solicitud Pendiente, recházala y después intenta
+aprobarla:
+
+```powershell
+$idSolicitudRechazada = (Invoke-RestMethod -Uri "$base/api/solicitudes-permisos" -Method Post -ContentType "application/json" -Headers @{ Authorization = "Bearer $tokenEstandar" } -Body '{"permiso":"CrearProyecto"}').id
+$cuerpoRechazoTransicion = @{ motivo = "Prueba de transición" } | ConvertTo-Json
+Invoke-WebRequest -Uri "$base/api/solicitudes-permisos/$idSolicitudRechazada/rechazar" -Method Post -Headers @{ Authorization = "Bearer $tokenAdmin" } -ContentType "application/json" -Body $cuerpoRechazoTransicion -UseBasicParsing
+curl.exe -i -X POST "$base/api/solicitudes-permisos/$idSolicitudRechazada/aprobar" -H "Authorization: Bearer $tokenAdmin"
+```
+
+Resultado esperado: `409 Conflict`; el estado sigue en `3` (`Rechazada`).
+
+### RF-GP-07: impedir que el Administrador resuelva su propia solicitud
+
+Con `$tokenAdmin`, crea una solicitud del propio Administrador y guarda directamente su
+identificador:
+
+```powershell
+$idSolicitudAdmin = (Invoke-RestMethod -Uri "$base/api/solicitudes-permisos" -Method Post -ContentType "application/json" -Headers @{ Authorization = "Bearer $tokenAdmin" } -Body '{"permiso":"CrearProyecto"}').id
+```
+
+Después intenta aprobarla con el mismo token:
+
+```powershell
+curl.exe -i -X POST "$base/api/solicitudes-permisos/$idSolicitudAdmin/aprobar" -H "Authorization: Bearer $tokenAdmin"
+```
+
+Resultado esperado: `403 Forbidden`; la solicitud sigue en estado `0` (`Pendiente`).
+
+## Pruebas
+
+Desde la raíz del repositorio ejecuta:
+
+```powershell
+dotnet test
+```
+
+Estas pruebas usan la base de datos en memoria, no necesitan Docker ni variables de
+entorno. El resultado esperado es `16` pruebas, `0` fallidas.
+
+Para ejecutar solo las pruebas del servicio de solicitudes:
+
+```powershell
+dotnet test --filter "FullyQualifiedName~ServicioSolicitudesPermisoPruebas"
+```
