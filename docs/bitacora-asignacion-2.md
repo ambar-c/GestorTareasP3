@@ -218,3 +218,70 @@ Estándar: antes de aprobar su solicitud, crear un proyecto daba 403; después
 de aprobarla, 201, sin volver a iniciar sesión. Como la política consulta la
 base en cada petición y no un dato de la sesión, el permiso se aplica al
 momento, como pide RF-GP-05.
+
+## Entrada 14 — Preparar el proyecto de pruebas
+**Fecha:** 20 de octubre, 2026
+**Qué le pedí:** Agregar a tests/GestorTareas.Pruebas la referencia a
+GestionPermisos y el paquete Microsoft.EntityFrameworkCore.InMemory en la
+misma versión de EF Core (10.0.0), para usar la base en memoria como fake del
+DbContext y que las pruebas no dependan de SQL Server ni de la API (RD-12).
+**Qué devolvió:** El .csproj con las dos dependencias, sin pruebas todavía.
+**Qué tomé / qué descarté:** Lo tomé tal cual.
+
+---
+
+## Entrada 15 — Pruebas de la máquina de estados
+**Fecha:** 20 de octubre, 2026
+**Qué le pedí:** Dos pruebas [Theory]: una con las tres transiciones válidas
+que deben devolver true, y otra con seis transiciones prohibidas (entre ellas
+Rechazada -> Aplicada, el ejemplo de RF-GP-06) que deben devolver false. Con
+Preparar, Actuar y Verificar, y nombres que digan el comportamiento.
+**Qué devolvió:** MaquinaEstadosSolicitudPruebas con las dos teorías. El
+bloque // Preparar quedó vacío, porque los datos vienen de [InlineData].
+**Qué tomé / qué descarté:** Tomé las pruebas, pero le pedí que pusiera un
+comentario debajo de // Preparar explicando de dónde salen los datos. La
+rúbrica pide tres fases identificables, y un bloque vacío parece una fase que
+falta.
+
+---
+
+## Entrada 16 — Pruebas de aprobar y rechazar
+**Fecha:** 20 de octubre, 2026
+**Qué le pedí:** Siete pruebas de AprobarAsync y RechazarAsync con la base en
+memoria, cada una con su propia base (Guid.NewGuid()) para que sean
+independientes, y verificando el estado final con un ContextoGestionPermisos
+nuevo, no con el objeto que devuelve el servicio.
+**Qué devolvió:** ServicioSolicitudesPermisoPruebas con las siete. Las de
+transición prohibida verifican el resultado del rechazo y que el estado
+guardado no cambió. La de aprobar solo verificaba la fecha con NotNull.
+**Qué tomé / qué descarté:** Las tomé, pero le pedí cambiar la verificación
+de la fecha: NotNull solo prueba que hay alguna fecha, no que sea la correcta.
+Ahora guarda la hora antes y después de aprobar y verifica que
+FechaResolucion quede entre las dos, así se comprueba el "cuándo" de RF-GP-03.
+
+---
+
+## Entrada 17 — Comprobar que las pruebas detectan un defecto
+**Fecha:** 20 de octubre, 2026
+**Qué hice:** Esta parte la hice yo, sin el agente. Para saber si las pruebas
+de verdad atrapan un error, metí a propósito un defecto en
+MaquinaEstadosSolicitud: agregué Rechazada -> Aprobada a la tabla de
+transiciones permitidas.
+**Resultado:** dotnet test dio 16 en total, 2 fallidas: la teoría de
+transiciones prohibidas con ese par y
+AprobarAsync_SolicitudRechazada_DevuelveTransicionNoValidaYConservaEstado,
+que esperaba TransicionNoValida y recibió Exitoso, porque la solicitud
+rechazada terminaba Aplicada. Deshice el cambio con git restore y volvió a
+16 de 16. También corrí una sola prueba con --filter y pasó sola, así que no
+dependen del orden.
+
+---
+
+## Fuentes consultadas en esta asignación
+- Bill Wake, «3A: Arrange, Act, Assert»: la estructura Preparar, Actuar y
+  Verificar de cada prueba.
+- Google Testing Blog, «Mutation Testing»: la idea de meter un defecto a
+  propósito para medir si la suite lo detecta (Entrada 17).
+- Martin Fowler, «Test Double»: la base en memoria como fake del DbContext.
+- Documentación de xUnit: [Theory] e [InlineData] para las pruebas
+  parametrizadas.
