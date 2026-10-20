@@ -112,3 +112,54 @@ mayúsculas, y que rechazara cualquier número con el mismo mensaje. Cambió
 nombres del enum antes de convertirlo. Reinicié la API y repetí la prueba:
 {"permiso":"0"} ahora responde 400 "El permiso solicitado no es válido." y
 CrearProyecto sigue respondiendo 201.
+
+## Entrada 7 — Máquina de estados de SolicitudPermiso
+**Fecha:** 20 de octubre, 2026
+**Qué le pedí:** Una clase propia en GestionPermisos con las únicas tres
+transiciones permitidas (Pendiente -> Aprobada, Aprobada -> Aplicada,
+Pendiente -> Rechazada) declaradas una sola vez, y un método que diga si una
+transición es válida. Sin DbContext, sin EF y sin excepciones, para poder
+probarla con xUnit sin base de datos (RD-04, RF-GP-06, RD-12).
+**Qué devolvió:** MaquinaEstadosSolicitud en Estados/, estática, con la tabla
+en un HashSet de pares (estado actual, estado destino) y el método
+EsTransicionValida. Antes de escribirla revisó que GestorTareas.Negocio ya
+tenía su propia máquina en Estados/ y siguió ese mismo patrón.
+**Qué tomé / qué descarté:** La tomé completa. Revisé que la tabla estuviera
+en un solo lugar y no repartida en if, y que no tuviera ninguna dependencia de
+EF.
+
+---
+
+## Entrada 8 — Aprobar y rechazar en el servicio
+**Fecha:** 20 de octubre, 2026
+**Qué le pedí:** AprobarAsync y RechazarAsync en ServicioSolicitudesPermiso,
+validando en orden: que la solicitud exista, que el Administrador no sea el
+solicitante (RF-GP-07), que la transición sea válida según
+MaquinaEstadosSolicitud (RF-GP-06) y que el motivo del rechazo no venga vacío
+(RF-GP-04). Si una regla falla, la solicitud no se toca ni se guarda.
+**Qué devolvió:** Las dos operaciones y un resultado con cinco casos (éxito, no
+encontrada, mismo solicitante, transición no válida y motivo inválido), sin
+excepciones. No tocó Program.cs.
+**Qué tomé / qué descarté:** Lo tomé. Revisé que las validaciones fueran
+antes de modificar la solicitud y que ninguna regla fallida llegara a
+SaveChangesAsync. Lo probé con curl: aprobar dos veces, rechazar una aprobada
+y aprobar una rechazada dan 409, y el estado no cambió; el Administrador con
+su propia solicitud da 403; un motivo con solo espacios da 400 y la solicitud
+sigue en Pendiente.
+**Nota:** Al probar el rechazo con curl.exe, los motivos con espacios rompían
+el JSON en PowerShell 5.1 y la API respondía el 400 genérico. No era el
+código: usé Invoke-WebRequest con ConvertTo-Json y ahí sí respondió lo
+esperado.
+
+---
+
+## Entrada 9 — Endpoints para aprobar y rechazar
+**Fecha:** 20 de octubre, 2026
+**Qué le pedí:** POST /api/solicitudes-permisos/{id}/aprobar y /rechazar, solo
+para Administrador, con el Id sacado de la sesión, y traduciendo el resultado
+del servicio a 404, 403, 409, 400 o 200.
+**Qué devolvió:** Las dos rutas con la política Administrador y un switch que
+traduce cada caso del resultado a su código HTTP. Agregó {id:guid} a la ruta,
+así que un Id mal formado se rechaza antes de llegar al servicio.
+**Qué tomé / qué descarté:** Lo tomé. Revisé que los endpoints solo
+tradujeran el resultado y no repitieran ninguna regla del servicio (RD-02).

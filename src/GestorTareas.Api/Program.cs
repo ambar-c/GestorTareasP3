@@ -330,6 +330,74 @@ app.MapGet("/api/solicitudes-permisos/pendientes", async (
 })
     .RequireAuthorization(Politicas.Administrador);
 
+app.MapPost("/api/solicitudes-permisos/{id:guid}/aprobar", async (
+    Guid id,
+    ClaimsPrincipal administrador,
+    ServicioSolicitudesPermiso servicioSolicitudesPermiso) =>
+{
+    if (!Guid.TryParse(
+        administrador.FindFirstValue(ClaimTypes.NameIdentifier),
+        out Guid idAdministrador))
+    {
+        return Results.BadRequest(new { error = "La identidad del Administrador no es válida." });
+    }
+
+    ResultadoResolucionSolicitudPermiso resultado =
+        await servicioSolicitudesPermiso.AprobarAsync(id, idAdministrador);
+
+    return resultado.Estado switch
+    {
+        EstadoResolucionSolicitudPermiso.SolicitudNoEncontrada =>
+            Results.NotFound(new { error = resultado.Motivo }),
+        EstadoResolucionSolicitudPermiso.MismoSolicitante =>
+            Results.Json(new { error = resultado.Motivo }, statusCode: StatusCodes.Status403Forbidden),
+        EstadoResolucionSolicitudPermiso.TransicionNoValida =>
+            Results.Conflict(new { error = resultado.Motivo }),
+        EstadoResolucionSolicitudPermiso.Exitoso =>
+            Results.Ok(resultado.Solicitud),
+        _ => Results.BadRequest(new { error = resultado.Motivo })
+    };
+})
+    .RequireAuthorization(Politicas.Administrador);
+
+app.MapPost("/api/solicitudes-permisos/{id:guid}/rechazar", async (
+    Guid id,
+    SolicitudRechazarPermiso? solicitud,
+    ClaimsPrincipal administrador,
+    ServicioSolicitudesPermiso servicioSolicitudesPermiso) =>
+{
+    if (solicitud is null)
+    {
+        return Results.BadRequest(new { error = "El cuerpo de la solicitud es obligatorio." });
+    }
+
+    if (!Guid.TryParse(
+        administrador.FindFirstValue(ClaimTypes.NameIdentifier),
+        out Guid idAdministrador))
+    {
+        return Results.BadRequest(new { error = "La identidad del Administrador no es válida." });
+    }
+
+    ResultadoResolucionSolicitudPermiso resultado =
+        await servicioSolicitudesPermiso.RechazarAsync(id, idAdministrador, solicitud.Motivo);
+
+    return resultado.Estado switch
+    {
+        EstadoResolucionSolicitudPermiso.SolicitudNoEncontrada =>
+            Results.NotFound(new { error = resultado.Motivo }),
+        EstadoResolucionSolicitudPermiso.MismoSolicitante =>
+            Results.Json(new { error = resultado.Motivo }, statusCode: StatusCodes.Status403Forbidden),
+        EstadoResolucionSolicitudPermiso.TransicionNoValida =>
+            Results.Conflict(new { error = resultado.Motivo }),
+        EstadoResolucionSolicitudPermiso.MotivoRechazoInvalido =>
+            Results.BadRequest(new { error = resultado.Motivo }),
+        EstadoResolucionSolicitudPermiso.Exitoso =>
+            Results.Ok(resultado.Solicitud),
+        _ => Results.BadRequest(new { error = resultado.Motivo })
+    };
+})
+    .RequireAuthorization(Politicas.Administrador);
+
 app.MapGet("/api/solicitudes-permisos", async (
     ClaimsPrincipal usuarioAutenticado,
     ServicioSolicitudesPermiso servicioSolicitudesPermiso) =>
@@ -609,3 +677,5 @@ public sealed record SolicitudInicioSesion(string? Correo, string? Contrasena);
 public sealed record SolicitudCambioRol(string? Rol);
 
 public sealed record SolicitudCrearPermiso(string? Permiso);
+
+public sealed record SolicitudRechazarPermiso(string? Motivo);
