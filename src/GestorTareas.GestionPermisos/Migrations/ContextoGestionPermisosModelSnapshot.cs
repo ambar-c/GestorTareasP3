@@ -22,6 +22,29 @@ namespace GestorTareas.GestionPermisos.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
+            modelBuilder.Entity("GestorTareas.GestionPermisos.Entidades.PermisoOtorgado", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("FechaOtorgamiento")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("IdUsuario")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Permiso")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IdUsuario", "Permiso")
+                        .IsUnique();
+
+                    b.ToTable("PermisosOtorgados", (string)null);
+                });
+
             modelBuilder.Entity("GestorTareas.GestionPermisos.Entidades.SolicitudPermiso", b =>
                 {
                     b.Property<Guid>("Id")
