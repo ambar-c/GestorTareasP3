@@ -163,3 +163,58 @@ traduce cada caso del resultado a su código HTTP. Agregó {id:guid} a la ruta,
 así que un Id mal formado se rechaza antes de llegar al servicio.
 **Qué tomé / qué descarté:** Lo tomé. Revisé que los endpoints solo
 tradujeran el resultado y no repitieran ninguna regla del servicio (RD-02).
+
+## Entrada 10 — Diagnóstico del módulo de negocio
+**Fecha:** 20 de octubre, 2026
+**Qué le pedí:** Que revisara GestorTareas.Negocio sin escribir nada y me dijera
+qué campos obligatorios tiene Proyecto, si NegocioDbContext ya estaba
+registrado en Api y si existía algún servicio para crear proyectos.
+**Qué devolvió:** Que Proyecto necesita Nombre (máximo 100 caracteres),
+UsuarioCreadorId y FechaCreacion, que NegocioDbContext no estaba registrado en
+Api y que no había ningún servicio ni endpoint para crear proyectos.
+**Qué tomé / qué descarté:** Lo tomé completo. Con eso supe qué datos tenía que
+llenar el endpoint de proyectos antes de pedírselo.
+
+---
+
+## Entrada 11 — Dónde se guarda el permiso otorgado
+**Fecha:** 20 de octubre, 2026
+**Qué le pedí:** Una entidad PermisoOtorgado en GestionPermisos (usuario,
+permiso y fecha en UTC) con un índice único sobre usuario y permiso, para que
+el mismo permiso no se otorgue dos veces. La migración la corro yo.
+**Qué devolvió:** La entidad, su DbSet en ContextoGestionPermisos con el índice
+único y el comando de migración solo con --project, como se lo pedí.
+**Qué tomé / qué descarté:** Lo tomé. Generé y apliqué la migración
+CrearPermisosOtorgados y verifiqué la tabla en SSMS.
+
+---
+
+## Entrada 12 — Aplicar el permiso al aprobar (RF-GP-05)
+**Fecha:** 20 de octubre, 2026
+**Qué le pedí:** Que al aprobar, la solicitud pasara a Aplicada en la misma
+operación validando Aprobada -> Aplicada con MaquinaEstadosSolicitud, que
+creara el PermisoOtorgado si el usuario no lo tenía, todo con un solo
+SaveChangesAsync, y un método TienePermisoAsync.
+**Qué devolvió:** AprobarAsync valida primero que la solicitud pueda pasar a
+Aprobada, después Aprobada -> Aplicada, y guarda la solicitud Aplicada y el
+permiso juntos. Agregó TienePermisoAsync.
+**Qué tomé / qué descarté:** Lo tomé. Revisé que no se saltara la validación
+de Pendiente -> Aprobada, porque si no una solicitud Rechazada podría terminar
+Aplicada, que es justo lo que prohíbe RF-GP-06.
+
+---
+
+## Entrada 13 — Crear proyectos protegido por el permiso
+**Fecha:** 20 de octubre, 2026
+**Qué le pedí:** POST /api/proyectos con la lógica en un servicio de Negocio,
+NegocioDbContext registrado con su propia tabla de historial y una política
+nueva en Politicas.cs que deje pasar al Administrador o a quien tenga
+CrearProyecto. Negocio y GestionPermisos sin referencias entre sí (RD-03).
+**Qué devolvió:** ServicioProyectos en Negocio, la política CrearProyecto con
+un manejador en Api que consulta TienePermisoAsync, y el endpoint protegido
+con esa política.
+**Qué tomé / qué descarté:** Lo tomé. Lo probé con el mismo token de un
+Estándar: antes de aprobar su solicitud, crear un proyecto daba 403; después
+de aprobarla, 201, sin volver a iniciar sesión. Como la política consulta la
+base en cada petición y no un dato de la sesión, el permiso se aplica al
+momento, como pide RF-GP-05.
