@@ -9,7 +9,7 @@ namespace GestorTareas.Pruebas.GestionPermisos;
 public class ServicioSolicitudesPermisoPruebas
 {
     [Fact]
-    public async Task AprobarAsync_SolicitudPendiente_GuardaEstadoAprobadorYFechaResolucion()
+    public async Task RF_GP_03_AprobarAsync_SolicitudPendiente_GuardaEstadoAprobadorYFechaResolucion()
     {
         // Preparar
         string nombreBase = Guid.NewGuid().ToString();
@@ -55,7 +55,7 @@ public class ServicioSolicitudesPermisoPruebas
     }
 
     [Fact]
-    public async Task AprobarAsync_SolicitudPendiente_OtorgaPermisoAlSolicitante()
+    public async Task RF_GP_05_AprobarAsync_SolicitudPendiente_OtorgaPermisoAlSolicitante()
     {
         // Preparar
         string nombreBase = Guid.NewGuid().ToString();
@@ -92,7 +92,7 @@ public class ServicioSolicitudesPermisoPruebas
     }
 
     [Fact]
-    public async Task RechazarAsync_SolicitudPendienteConMotivo_GuardaEstadoYMotivo()
+    public async Task RF_GP_04_RechazarAsync_SolicitudPendienteConMotivo_GuardaEstadoYMotivo()
     {
         // Preparar
         string nombreBase = Guid.NewGuid().ToString();
@@ -134,7 +134,7 @@ public class ServicioSolicitudesPermisoPruebas
     }
 
     [Fact]
-    public async Task AprobarAsync_SolicitudRechazada_DevuelveTransicionNoValidaYConservaEstado()
+    public async Task RF_GP_06_AprobarAsync_SolicitudRechazada_DevuelveTransicionNoValidaYConservaEstado()
     {
         // Preparar
         string nombreBase = Guid.NewGuid().ToString();
@@ -171,7 +171,7 @@ public class ServicioSolicitudesPermisoPruebas
     }
 
     [Fact]
-    public async Task AprobarAsync_SolicitudAplicada_DevuelveTransicionNoValidaYConservaEstado()
+    public async Task RF_GP_06_AprobarAsync_SolicitudAplicada_DevuelveTransicionNoValidaYConservaEstado()
     {
         // Preparar
         string nombreBase = Guid.NewGuid().ToString();
@@ -208,7 +208,7 @@ public class ServicioSolicitudesPermisoPruebas
     }
 
     [Fact]
-    public async Task RechazarAsync_MotivoConSoloEspacios_DevuelveMotivoInvalidoYConservaEstado()
+    public async Task RF_GP_04_RechazarAsync_MotivoConSoloEspacios_DevuelveMotivoInvalidoYConservaEstado()
     {
         // Preparar
         string nombreBase = Guid.NewGuid().ToString();
@@ -250,7 +250,7 @@ public class ServicioSolicitudesPermisoPruebas
     }
 
     [Fact]
-    public async Task AprobarAsync_AdministradorEsSolicitante_DevuelveMismoSolicitanteYConservaEstado()
+    public async Task RF_GP_07_AprobarAsync_AdministradorEsSolicitante_DevuelveMismoSolicitanteYConservaEstado()
     {
         // Preparar
         string nombreBase = Guid.NewGuid().ToString();
