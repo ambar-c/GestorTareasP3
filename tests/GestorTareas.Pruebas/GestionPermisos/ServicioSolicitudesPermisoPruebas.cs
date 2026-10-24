@@ -285,6 +285,134 @@ public class ServicioSolicitudesPermisoPruebas
         Assert.Equal(EstadoSolicitudPermiso.Pendiente, solicitudGuardada.Estado);
     }
 
+    [Fact]
+    public async Task RF_GP_01_CrearAsync_PermisoValido_CreaSolicitudEnPendiente()
+    {
+        // Preparar
+        string nombreBase = Guid.NewGuid().ToString();
+        Guid idSolicitante = Guid.NewGuid();
+
+        using (var contexto = CrearContexto(nombreBase))
+        {
+            var servicio = new ServicioSolicitudesPermiso(contexto);
+
+            // Actuar
+            var resultado = await servicio.CrearAsync(
+                idSolicitante,
+                "CrearProyecto");
+
+            // Verificar
+            Assert.True(resultado.Exito);
+        }
+
+        using var contextoVerificacion = CrearContexto(nombreBase);
+        var solicitudGuardada = await contextoVerificacion.SolicitudesPermiso
+            .SingleAsync();
+
+        Assert.Equal(EstadoSolicitudPermiso.Pendiente, solicitudGuardada.Estado);
+        Assert.Equal(idSolicitante, solicitudGuardada.IdSolicitante);
+    }
+
+    [Fact]
+    public async Task RF_GP_02_ListarPropiasAsync_ConSolicitudesDeOtros_DevuelveSoloLasDelSolicitante()
+    {
+        // Preparar
+        string nombreBase = Guid.NewGuid().ToString();
+        Guid idSolicitante = Guid.NewGuid();
+        Guid idOtroSolicitante = Guid.NewGuid();
+
+        using (var contexto = CrearContexto(nombreBase))
+        {
+            contexto.SolicitudesPermiso.AddRange(
+                new SolicitudPermiso
+                {
+                    Id = Guid.NewGuid(),
+                    IdSolicitante = idSolicitante,
+                    PermisoSolicitado = Permiso.CrearProyecto,
+                    Estado = EstadoSolicitudPermiso.Pendiente,
+                    FechaCreacion = DateTime.UtcNow
+                },
+                new SolicitudPermiso
+                {
+                    Id = Guid.NewGuid(),
+                    IdSolicitante = idSolicitante,
+                    PermisoSolicitado = Permiso.CrearProyecto,
+                    Estado = EstadoSolicitudPermiso.Pendiente,
+                    FechaCreacion = DateTime.UtcNow
+                },
+                new SolicitudPermiso
+                {
+                    Id = Guid.NewGuid(),
+                    IdSolicitante = idOtroSolicitante,
+                    PermisoSolicitado = Permiso.CrearProyecto,
+                    Estado = EstadoSolicitudPermiso.Pendiente,
+                    FechaCreacion = DateTime.UtcNow
+                });
+            await contexto.SaveChangesAsync();
+        }
+
+        using var contextoVerificacion = CrearContexto(nombreBase);
+        var servicio = new ServicioSolicitudesPermiso(contextoVerificacion);
+
+        // Actuar
+        var solicitudes = await servicio.ListarPropiasAsync(idSolicitante);
+
+        // Verificar
+        Assert.Equal(2, solicitudes.Count);
+        Assert.All(solicitudes, solicitud =>
+            Assert.Equal(idSolicitante, solicitud.IdSolicitante));
+        Assert.DoesNotContain(
+            solicitudes,
+            solicitud => solicitud.IdSolicitante == idOtroSolicitante);
+    }
+
+    [Fact]
+    public async Task RF_GP_02_ListarPendientesAsync_ConVariosEstados_DevuelveSoloPendientes()
+    {
+        // Preparar
+        string nombreBase = Guid.NewGuid().ToString();
+
+        using (var contexto = CrearContexto(nombreBase))
+        {
+            contexto.SolicitudesPermiso.AddRange(
+                new SolicitudPermiso
+                {
+                    Id = Guid.NewGuid(),
+                    IdSolicitante = Guid.NewGuid(),
+                    PermisoSolicitado = Permiso.CrearProyecto,
+                    Estado = EstadoSolicitudPermiso.Pendiente,
+                    FechaCreacion = DateTime.UtcNow
+                },
+                new SolicitudPermiso
+                {
+                    Id = Guid.NewGuid(),
+                    IdSolicitante = Guid.NewGuid(),
+                    PermisoSolicitado = Permiso.CrearProyecto,
+                    Estado = EstadoSolicitudPermiso.Rechazada,
+                    FechaCreacion = DateTime.UtcNow
+                },
+                new SolicitudPermiso
+                {
+                    Id = Guid.NewGuid(),
+                    IdSolicitante = Guid.NewGuid(),
+                    PermisoSolicitado = Permiso.CrearProyecto,
+                    Estado = EstadoSolicitudPermiso.Aplicada,
+                    FechaCreacion = DateTime.UtcNow
+                });
+            await contexto.SaveChangesAsync();
+        }
+
+        using var contextoVerificacion = CrearContexto(nombreBase);
+        var servicio = new ServicioSolicitudesPermiso(contextoVerificacion);
+
+        // Actuar
+        var solicitudes = await servicio.ListarPendientesAsync();
+
+        // Verificar
+        var solicitud = Assert.Single(solicitudes);
+        Assert.Equal(EstadoSolicitudPermiso.Pendiente, solicitud.Estado);
+    }
+
     private static ContextoGestionPermisos CrearContexto(string nombreBase)
     {
         var opciones = new DbContextOptionsBuilder<ContextoGestionPermisos>()
