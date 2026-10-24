@@ -8,7 +8,7 @@ public class MaquinaEstadosSolicitudPruebas
     [InlineData(EstadoSolicitudPermiso.Pendiente, EstadoSolicitudPermiso.Aprobada)]
     [InlineData(EstadoSolicitudPermiso.Aprobada, EstadoSolicitudPermiso.Aplicada)]
     [InlineData(EstadoSolicitudPermiso.Pendiente, EstadoSolicitudPermiso.Rechazada)]
-    public void EsTransicionValida_TransicionPermitida_DevuelveTrue(
+    public void RF_GP_06_EsTransicionValida_TransicionPermitida_DevuelveTrue(
         EstadoSolicitudPermiso estadoActual,
         EstadoSolicitudPermiso estadoDestino)
     {
@@ -31,7 +31,14 @@ public class MaquinaEstadosSolicitudPruebas
     [InlineData(EstadoSolicitudPermiso.Aprobada, EstadoSolicitudPermiso.Rechazada)]
     [InlineData(EstadoSolicitudPermiso.Pendiente, EstadoSolicitudPermiso.Aplicada)]
     [InlineData(EstadoSolicitudPermiso.Pendiente, EstadoSolicitudPermiso.Pendiente)]
-    public void EsTransicionValida_TransicionProhibida_DevuelveFalse(
+    [InlineData(EstadoSolicitudPermiso.Aprobada, EstadoSolicitudPermiso.Pendiente)]
+    [InlineData(EstadoSolicitudPermiso.Aprobada, EstadoSolicitudPermiso.Aprobada)]
+    [InlineData(EstadoSolicitudPermiso.Rechazada, EstadoSolicitudPermiso.Pendiente)]
+    [InlineData(EstadoSolicitudPermiso.Rechazada, EstadoSolicitudPermiso.Rechazada)]
+    [InlineData(EstadoSolicitudPermiso.Aplicada, EstadoSolicitudPermiso.Aprobada)]
+    [InlineData(EstadoSolicitudPermiso.Aplicada, EstadoSolicitudPermiso.Rechazada)]
+    [InlineData(EstadoSolicitudPermiso.Aplicada, EstadoSolicitudPermiso.Aplicada)]
+    public void RF_GP_06_EsTransicionValida_TransicionProhibida_DevuelveFalse(
         EstadoSolicitudPermiso estadoActual,
         EstadoSolicitudPermiso estadoDestino)
     {
