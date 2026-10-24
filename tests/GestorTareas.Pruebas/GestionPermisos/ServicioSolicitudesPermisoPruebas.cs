@@ -413,6 +413,140 @@ public class ServicioSolicitudesPermisoPruebas
         Assert.Equal(EstadoSolicitudPermiso.Pendiente, solicitud.Estado);
     }
 
+    [Fact]
+    public async Task RF_GP_04_RechazarAsync_MotivoNulo_DevuelveMotivoInvalidoYConservaEstado()
+    {
+        // Preparar
+        string nombreBase = Guid.NewGuid().ToString();
+        Guid idSolicitud = Guid.NewGuid();
+        Guid idSolicitante = Guid.NewGuid();
+        Guid idAdministrador = Guid.NewGuid();
+
+        using (var contexto = CrearContexto(nombreBase))
+        {
+            contexto.SolicitudesPermiso.Add(new SolicitudPermiso
+            {
+                Id = idSolicitud,
+                IdSolicitante = idSolicitante,
+                PermisoSolicitado = Permiso.CrearProyecto,
+                Estado = EstadoSolicitudPermiso.Pendiente,
+                FechaCreacion = DateTime.UtcNow
+            });
+            await contexto.SaveChangesAsync();
+
+            var servicio = new ServicioSolicitudesPermiso(contexto);
+
+            // Actuar
+            var resultado = await servicio.RechazarAsync(
+                idSolicitud,
+                idAdministrador,
+                null);
+
+            // Verificar
+            Assert.Equal(
+                EstadoResolucionSolicitudPermiso.MotivoRechazoInvalido,
+                resultado.Estado);
+        }
+
+        using var contextoVerificacion = CrearContexto(nombreBase);
+        var solicitudGuardada = await contextoVerificacion.SolicitudesPermiso
+            .SingleAsync(solicitud => solicitud.Id == idSolicitud);
+
+        Assert.Equal(EstadoSolicitudPermiso.Pendiente, solicitudGuardada.Estado);
+    }
+
+    [Fact]
+    public async Task RF_GP_07_RechazarAsync_AdministradorEsSolicitante_DevuelveMismoSolicitanteYConservaEstado()
+    {
+        // Preparar
+        string nombreBase = Guid.NewGuid().ToString();
+        Guid idSolicitud = Guid.NewGuid();
+        Guid idAdministrador = Guid.NewGuid();
+        const string motivo = "Motivo válido";
+
+        using (var contexto = CrearContexto(nombreBase))
+        {
+            contexto.SolicitudesPermiso.Add(new SolicitudPermiso
+            {
+                Id = idSolicitud,
+                IdSolicitante = idAdministrador,
+                PermisoSolicitado = Permiso.CrearProyecto,
+                Estado = EstadoSolicitudPermiso.Pendiente,
+                FechaCreacion = DateTime.UtcNow
+            });
+            await contexto.SaveChangesAsync();
+
+            var servicio = new ServicioSolicitudesPermiso(contexto);
+
+            // Actuar
+            var resultado = await servicio.RechazarAsync(
+                idSolicitud,
+                idAdministrador,
+                motivo);
+
+            // Verificar
+            Assert.Equal(
+                EstadoResolucionSolicitudPermiso.MismoSolicitante,
+                resultado.Estado);
+        }
+
+        using var contextoVerificacion = CrearContexto(nombreBase);
+        var solicitudGuardada = await contextoVerificacion.SolicitudesPermiso
+            .SingleAsync(solicitud => solicitud.Id == idSolicitud);
+
+        Assert.Equal(EstadoSolicitudPermiso.Pendiente, solicitudGuardada.Estado);
+        Assert.Null(solicitudGuardada.MotivoRechazo);
+    }
+
+    [Fact]
+    public async Task RF_GP_06_AprobarAsync_DosVeces_SegundaDevuelveTransicionNoValidaYConservaAprobador()
+    {
+        // Preparar
+        string nombreBase = Guid.NewGuid().ToString();
+        Guid idSolicitud = Guid.NewGuid();
+        Guid idSolicitante = Guid.NewGuid();
+        Guid idAdministradorA = Guid.NewGuid();
+        Guid idAdministradorB = Guid.NewGuid();
+
+        using (var contexto = CrearContexto(nombreBase))
+        {
+            contexto.SolicitudesPermiso.Add(new SolicitudPermiso
+            {
+                Id = idSolicitud,
+                IdSolicitante = idSolicitante,
+                PermisoSolicitado = Permiso.CrearProyecto,
+                Estado = EstadoSolicitudPermiso.Pendiente,
+                FechaCreacion = DateTime.UtcNow
+            });
+            await contexto.SaveChangesAsync();
+
+            var servicio = new ServicioSolicitudesPermiso(contexto);
+
+            // Actuar
+            var primerResultado = await servicio.AprobarAsync(
+                idSolicitud,
+                idAdministradorA);
+            var segundoResultado = await servicio.AprobarAsync(
+                idSolicitud,
+                idAdministradorB);
+
+            // Verificar
+            Assert.Equal(
+                EstadoResolucionSolicitudPermiso.Exitoso,
+                primerResultado.Estado);
+            Assert.Equal(
+                EstadoResolucionSolicitudPermiso.TransicionNoValida,
+                segundoResultado.Estado);
+        }
+
+        using var contextoVerificacion = CrearContexto(nombreBase);
+        var solicitudGuardada = await contextoVerificacion.SolicitudesPermiso
+            .SingleAsync(solicitud => solicitud.Id == idSolicitud);
+
+        Assert.Equal(EstadoSolicitudPermiso.Aplicada, solicitudGuardada.Estado);
+        Assert.Equal(idAdministradorA, solicitudGuardada.IdAprobador);
+    }
+
     private static ContextoGestionPermisos CrearContexto(string nombreBase)
     {
         var opciones = new DbContextOptionsBuilder<ContextoGestionPermisos>()
