@@ -81,9 +81,7 @@ public sealed class ServicioSolicitudesPermiso(ContextoGestionPermisos contexto)
                 null);
         }
 
-        if (!MaquinaEstadosSolicitud.EsTransicionValida(
-                solicitud.Estado,
-                EstadoSolicitudPermiso.Aprobada))
+        if (solicitud.Estado == EstadoSolicitudPermiso.Rechazada)
         {
             return new ResultadoResolucionSolicitudPermiso(
                 EstadoResolucionSolicitudPermiso.TransicionNoValida,
