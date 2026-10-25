@@ -72,15 +72,6 @@ public sealed class ServicioSolicitudesPermiso(ContextoGestionPermisos contexto)
                 "Solicitud de permiso no encontrada.",
                 null);
         }
-
-        if (solicitud.IdSolicitante == idAdministrador)
-        {
-            return new ResultadoResolucionSolicitudPermiso(
-                EstadoResolucionSolicitudPermiso.MismoSolicitante,
-                "El Administrador no puede resolver su propia solicitud.",
-                null);
-        }
-
         if (!MaquinaEstadosSolicitud.EsTransicionValida(
                 solicitud.Estado,
                 EstadoSolicitudPermiso.Aprobada))
@@ -153,15 +144,6 @@ public sealed class ServicioSolicitudesPermiso(ContextoGestionPermisos contexto)
                 "Solicitud de permiso no encontrada.",
                 null);
         }
-
-        if (solicitud.IdSolicitante == idAdministrador)
-        {
-            return new ResultadoResolucionSolicitudPermiso(
-                EstadoResolucionSolicitudPermiso.MismoSolicitante,
-                "El Administrador no puede resolver su propia solicitud.",
-                null);
-        }
-
         if (!MaquinaEstadosSolicitud.EsTransicionValida(
                 solicitud.Estado,
                 EstadoSolicitudPermiso.Rechazada))
