@@ -11,7 +11,8 @@ public static class MaquinaEstadosSolicitud
         {
             (EstadoSolicitudPermiso.Pendiente, EstadoSolicitudPermiso.Aprobada),
             (EstadoSolicitudPermiso.Aprobada, EstadoSolicitudPermiso.Aplicada),
-            (EstadoSolicitudPermiso.Pendiente, EstadoSolicitudPermiso.Rechazada)
+            (EstadoSolicitudPermiso.Pendiente, EstadoSolicitudPermiso.Rechazada),
+            (EstadoSolicitudPermiso.Aprobada, EstadoSolicitudPermiso.Pendiente)
         };
 
     public static bool EsTransicionValida(
