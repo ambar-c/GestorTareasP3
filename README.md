@@ -78,6 +78,7 @@ Abre `.env` y define:
 - `SMTP_HOST`, `SMTP_PUERTO` y `SMTP_NOMBRE_REMITENTE` ya traen un valor útil en la plantilla.
 - `APP_URL_BASE`: ya trae `http://localhost:5065` en la plantilla; cámbiala solo si usas otro puerto.
 - `ADMIN_NOMBRE`, `ADMIN_CORREO` y `ADMIN_CLAVE`: los datos del Administrador inicial, que se crea al arrancar la API. La clave debe cumplir la política de contraseña (8 o más caracteres, con letras y números).
+- `ADMIN_NOMBRE`, `ADMIN_CORREO` y `ADMIN_CLAVE`: el Administrador inicial, que la API crea al arrancar. La clave debe cumplir la política de contraseña: 8 o más caracteres, con letras y números.
 
 El archivo `.env` está en `.gitignore` y nunca se sube al repositorio.
 
@@ -115,6 +116,13 @@ Luego crea la tabla de la cola de correos:
 
 ```powershell
 dotnet ef database update --project src/GestorTareas.Notificaciones
+```
+
+Luego crea las tablas de Gestión de permisos y del módulo de negocio:
+
+```
+dotnet ef database update --project src/GestorTareas.GestionPermisos
+dotnet ef database update --project src/GestorTareas.Negocio
 ```
 
 Y crea las tablas del módulo de negocio:
