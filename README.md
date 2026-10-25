@@ -827,3 +827,31 @@ Para ejecutar solo las pruebas del servicio de solicitudes:
 ```powershell
 dotnet test --filter "FullyQualifiedName~ServicioSolicitudesPermisoPruebas"
 ```
+## Pruebas
+
+Las pruebas de Gestión de permisos se ejecutan con un solo comando desde la raíz del repositorio:
+
+```
+dotnet test
+```
+
+No hace falta levantar la API, Docker ni la base de datos: las pruebas usan una base en memoria (InMemory) y cada una prepara sus propios datos. Resultado esperado: 29 pruebas, 0 fallidas. El nombre de cada prueba empieza por el requisito que cubre, de `RF_GP_01_` a `RF_GP_07_`.
+
+## Defectos (Práctica 2, variante A)
+
+Cada defecto está en la etiqueta `practica-2-defecto-N`: un commit cuyo padre es `practica-2` y que solo cambia código de Gestión de permisos. Para ver fallar la suite con un defecto:
+
+```
+git checkout practica-2-defecto-1
+dotnet test
+git checkout main
+```
+
+| Defecto | Requisito | Prueba que lo detecta | Qué comprueba |
+|---|---|---|---|
+| 1 | RF-GP-06 | `RF_GP_06_AprobarAsync_SolicitudAplicada_DevuelveTransicionNoValidaYConservaEstado` | Aprobar una solicitud que ya fue aplicada se rechaza y el estado no cambia. |
+| 2 | RF-GP-06 | `RF_GP_06_EsTransicionValida_TransicionProhibida_DevuelveFalse(Rechazada, Aplicada)` | La máquina de estados no permite pasar de Rechazada a Aplicada. |
+| 3 | RF-GP-07 | `RF_GP_07_AprobarAsync_AdministradorEsSolicitante_DevuelveMismoSolicitanteYConservaEstado` | Un Administrador no puede aprobar una solicitud creada por él mismo. |
+| 4 | RF-GP-02 | `RF_GP_02_ListarPropiasAsync_ConSolicitudesDeOtros_DevuelveSoloLasDelSolicitante` | La consulta de un usuario Estándar devuelve solo sus solicitudes, nunca las de otros. |
+| 5 | RF-GP-06 | `RF_GP_06_EsTransicionValida_TransicionProhibida_DevuelveFalse(Aprobada, Pendiente)` | La máquina de estados no permite que una solicitud aprobada vuelva a Pendiente. |
+| 6 | RF-GP-04 | `RF_GP_04_RechazarAsync_SolicitudPendienteConMotivo_GuardaEstadoYMotivo` | Al rechazar, la solicitud guarda el motivo indicado. |
