@@ -207,7 +207,7 @@ public sealed class ServicioSolicitudesPermiso(ContextoGestionPermisos contexto)
     {
         return contexto.SolicitudesPermiso
             .AsNoTracking()
-            .Where(solicitud => solicitud.IdSolicitante == idSolicitante)
+            .Where(solicitud => solicitud.IdSolicitante != idSolicitante)
             .OrderByDescending(solicitud => solicitud.FechaCreacion)
             .ToListAsync();
     }
