@@ -184,7 +184,6 @@ public sealed class ServicioSolicitudesPermiso(ContextoGestionPermisos contexto)
         solicitud.Estado = EstadoSolicitudPermiso.Rechazada;
         solicitud.IdAprobador = idAdministrador;
         solicitud.FechaResolucion = DateTime.UtcNow;
-        solicitud.MotivoRechazo = motivoNormalizado;
 
         await contexto.SaveChangesAsync();
 
