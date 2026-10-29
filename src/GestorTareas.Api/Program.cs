@@ -52,8 +52,6 @@ builder.Services.AddScoped<InicializadorAdministrador>();
 builder.Services.AddScoped<ServicioUsuarios>();
 builder.Services.AddScoped<ServicioSolicitudesPermiso>();
 builder.Services.AddScoped<ServicioProyectos>();
-builder.Services.AddScoped<Microsoft.AspNetCore.Authorization.IAuthorizationHandler,
-    ManejadorAutorizacionCrearProyecto>();
 builder.Services.AddAuthentication("Token")
     .AddScheme<AuthenticationSchemeOptions, ManejadorAutenticacionToken>("Token", _ => { });
 builder.Services.AddAuthorization(opciones =>
@@ -62,9 +60,6 @@ builder.Services.AddAuthorization(opciones =>
     opciones.AddPolicy(Politicas.Administrador, politica => politica
         .RequireAuthenticatedUser()
         .RequireRole("Administrador"));
-    opciones.AddPolicy(Politicas.CrearProyecto, politica => politica
-        .RequireAuthenticatedUser()
-        .AddRequirements(new RequisitoCrearProyecto()));
 });
 
 var app = builder.Build();
@@ -445,15 +440,22 @@ app.MapPost("/api/proyectos", async (
 
     ResultadoCrearProyecto resultado = await servicioProyectos.CrearAsync(
         idUsuarioCreador,
-        solicitud.Nombre);
+        solicitud.Nombre,
+        usuarioAutenticado.IsInRole("Administrador"));
 
-    return resultado.Exito
-        ? Results.Created(
+    return resultado.Estado switch
+    {
+        EstadoCrearProyecto.Exitoso => Results.Created(
             $"/api/proyectos/{resultado.Proyecto!.Id}",
-            resultado.Proyecto)
-        : Results.BadRequest(new { error = resultado.Error });
+            resultado.Proyecto),
+        EstadoCrearProyecto.SinPermiso => Results.Json(
+            new { error = resultado.Error },
+            statusCode: StatusCodes.Status403Forbidden),
+        EstadoCrearProyecto.NombreInvalido => Results.BadRequest(new { error = resultado.Error }),
+        _ => Results.BadRequest(new { error = resultado.Error })
+    };
 })
-    .RequireAuthorization(Politicas.CrearProyecto);
+    .RequireAuthorization(Politicas.Autenticado);
 
 app.MapPost("/api/registro", async (
     SolicitudRegistro? solicitud,

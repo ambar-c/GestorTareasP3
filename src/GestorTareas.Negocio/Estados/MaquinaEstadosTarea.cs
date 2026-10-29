@@ -38,6 +38,11 @@ public static class MaquinaEstadosTarea
             EstadoTarea.Cancelada
         };
 
+    public static bool EsTerminal(EstadoTarea estado)
+    {
+        return EstadosTerminales.Contains(estado);
+    }
+
     public static ResultadoTransicion Validar(
         Tarea tarea,
         EstadoTarea hacia,
