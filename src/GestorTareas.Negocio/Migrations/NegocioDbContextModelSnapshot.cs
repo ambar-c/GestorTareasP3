@@ -66,6 +66,26 @@ namespace GestorTareas.Negocio.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("Prioridades", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            Id = new Guid("11111111-1111-1111-1111-111111111111"),
+                            Nivel = 1,
+                            Nombre = "Alta"
+                        },
+                        new
+                        {
+                            Id = new Guid("22222222-2222-2222-2222-222222222222"),
+                            Nivel = 2,
+                            Nombre = "Media"
+                        },
+                        new
+                        {
+                            Id = new Guid("33333333-3333-3333-3333-333333333333"),
+                            Nivel = 3,
+                            Nombre = "Baja"
+                        });
                 });
 
             modelBuilder.Entity("GestorTareas.Negocio.Entidades.Proyecto", b =>

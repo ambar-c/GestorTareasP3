@@ -29,6 +29,25 @@ public class NegocioDbContext(DbContextOptions<NegocioDbContext> options) : DbCo
         prioridad.Property(p => p.Nombre)
             .IsRequired()
             .HasMaxLength(50);
+        prioridad.HasData(
+            new Prioridad
+            {
+                Id = new Guid("11111111-1111-1111-1111-111111111111"),
+                Nombre = "Alta",
+                Nivel = 1
+            },
+            new Prioridad
+            {
+                Id = new Guid("22222222-2222-2222-2222-222222222222"),
+                Nombre = "Media",
+                Nivel = 2
+            },
+            new Prioridad
+            {
+                Id = new Guid("33333333-3333-3333-3333-333333333333"),
+                Nombre = "Baja",
+                Nivel = 3
+            });
         prioridad.HasMany(p => p.Tareas)
             .WithOne()
             .HasForeignKey(t => t.PrioridadId)
