@@ -18,6 +18,11 @@ public sealed record ResultadoOperacionTarea(
     string? Error,
     Tarea? Tarea);
 
+public sealed record ResultadoComentarTarea(
+    EstadoOperacionTarea Estado,
+    string? Error,
+    Comentario? Comentario);
+
 public sealed class ServicioTareas(NegocioDbContext contexto)
 {
     public async Task<ResultadoOperacionTarea> CrearAsync(
@@ -82,6 +87,72 @@ public sealed class ServicioTareas(NegocioDbContext contexto)
             EstadoOperacionTarea.Exitoso,
             null,
             tarea);
+    }
+
+    public async Task<ResultadoComentarTarea> ComentarAsync(
+        Guid idUsuario,
+        bool esAdministrador,
+        Guid idTarea,
+        string? texto)
+    {
+        Tarea? tarea = await contexto.Tareas
+            .SingleOrDefaultAsync(tarea => tarea.Id == idTarea);
+
+        if (tarea is null)
+        {
+            return new ResultadoComentarTarea(
+                EstadoOperacionTarea.NoEncontrado,
+                "La tarea no existe.",
+                null);
+        }
+
+        Proyecto? proyecto = await contexto.Proyectos
+            .SingleOrDefaultAsync(proyecto => proyecto.Id == tarea.ProyectoId);
+
+        if (proyecto is null)
+        {
+            return new ResultadoComentarTarea(
+                EstadoOperacionTarea.NoEncontrado,
+                "El proyecto no existe.",
+                null);
+        }
+
+        if (!esAdministrador
+            && proyecto.UsuarioCreadorId != idUsuario
+            && tarea.UsuarioAsignadoId != idUsuario)
+        {
+            return new ResultadoComentarTarea(
+                EstadoOperacionTarea.SinPermiso,
+                "No tienes permiso para comentar esta tarea.",
+                null);
+        }
+
+        string textoNormalizado = texto?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(textoNormalizado)
+            || textoNormalizado.Length > 1000)
+        {
+            return new ResultadoComentarTarea(
+                EstadoOperacionTarea.DatosInvalidos,
+                "El comentario no es válido.",
+                null);
+        }
+
+        var comentario = new Comentario
+        {
+            Id = Guid.NewGuid(),
+            TareaId = idTarea,
+            UsuarioId = idUsuario,
+            Texto = textoNormalizado,
+            FechaCreacion = DateTime.UtcNow
+        };
+
+        contexto.Comentarios.Add(comentario);
+        await contexto.SaveChangesAsync();
+
+        return new ResultadoComentarTarea(
+            EstadoOperacionTarea.Exitoso,
+            null,
+            comentario);
     }
 
     public async Task<ResultadoOperacionTarea> AsignarResponsableAsync(
