@@ -1,25 +1,51 @@
 using GestorTareas.Negocio.Entidades;
+using GestorTareas.GestionPermisos;
+using GestorTareas.GestionPermisos.Permisos;
 using Microsoft.EntityFrameworkCore;
 
 namespace GestorTareas.Negocio;
 
-public sealed record ResultadoCrearProyecto(
-    bool Exito,
-    string? Error,
-    Proyecto? Proyecto);
+public enum EstadoCrearProyecto
+{
+    Exitoso,
+    SinPermiso,
+    NombreInvalido
+}
 
-public sealed class ServicioProyectos(NegocioDbContext contexto)
+public sealed record ResultadoCrearProyecto(
+    EstadoCrearProyecto Estado,
+    string? Error,
+    Proyecto? Proyecto)
+{
+    public bool Exito => Estado == EstadoCrearProyecto.Exitoso;
+}
+
+public sealed class ServicioProyectos(
+    NegocioDbContext contexto,
+    ServicioSolicitudesPermiso servicioSolicitudesPermiso)
 {
     public async Task<ResultadoCrearProyecto> CrearAsync(
         Guid idUsuarioCreador,
-        string? nombre)
+        string? nombre,
+        bool esAdministrador)
     {
+        if (!esAdministrador
+            && !await servicioSolicitudesPermiso.TienePermisoAsync(
+                idUsuarioCreador,
+                Permiso.CrearProyecto))
+        {
+            return new ResultadoCrearProyecto(
+                EstadoCrearProyecto.SinPermiso,
+                "No tienes permiso para crear proyectos.",
+                null);
+        }
+
         string? nombreNormalizado = nombre?.Trim();
         if (string.IsNullOrWhiteSpace(nombreNormalizado)
             || nombreNormalizado.Length > 100)
         {
             return new ResultadoCrearProyecto(
-                false,
+                EstadoCrearProyecto.NombreInvalido,
                 "El nombre del proyecto no es válido.",
                 null);
         }
@@ -35,6 +61,6 @@ public sealed class ServicioProyectos(NegocioDbContext contexto)
         contexto.Proyectos.Add(proyecto);
         await contexto.SaveChangesAsync();
 
-        return new ResultadoCrearProyecto(true, null, proyecto);
+        return new ResultadoCrearProyecto(EstadoCrearProyecto.Exitoso, null, proyecto);
     }
 }

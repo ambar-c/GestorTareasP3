@@ -12,6 +12,7 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <ProjectReference Include="..\GestorTareas.ControlAcceso\GestorTareas.ControlAcceso.csproj" />
+    <ProjectReference Include="..\GestorTareas.GestionPermisos\GestorTareas.GestionPermisos.csproj" />
   </ItemGroup>
 
 </Project>
