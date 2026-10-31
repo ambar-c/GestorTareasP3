@@ -533,6 +533,136 @@ app.MapPost("/api/proyectos/{id:guid}/tareas", async (
 })
     .RequireAuthorization(Politicas.Autenticado);
 
+app.MapPut("/api/tareas/{id:guid}/responsable", async (
+    Guid id,
+    SolicitudAsignarResponsable? solicitud,
+    ClaimsPrincipal usuarioAutenticado,
+    ServicioTareas servicioTareas) =>
+{
+    if (solicitud is null)
+    {
+        return Results.BadRequest(new { error = "El cuerpo de la solicitud es obligatorio." });
+    }
+
+    if (solicitud.IdResponsable is null)
+    {
+        return Results.BadRequest(new { error = "El responsable es obligatorio." });
+    }
+
+    if (!Guid.TryParse(
+        usuarioAutenticado.FindFirstValue(ClaimTypes.NameIdentifier),
+        out Guid idUsuario))
+    {
+        return Results.BadRequest(new { error = "La identidad del usuario no es válida." });
+    }
+
+    ResultadoOperacionTarea resultado = await servicioTareas.AsignarResponsableAsync(
+        idUsuario,
+        usuarioAutenticado.IsInRole("Administrador"),
+        id,
+        solicitud.IdResponsable.Value);
+
+    return resultado.Estado switch
+    {
+        EstadoOperacionTarea.Exitoso => Results.Ok(RespuestaTarea.Desde(resultado.Tarea!)),
+        EstadoOperacionTarea.NoEncontrado => Results.NotFound(new { error = resultado.Error }),
+        EstadoOperacionTarea.SinPermiso => Results.Json(
+            new { error = resultado.Error },
+            statusCode: StatusCodes.Status403Forbidden),
+        EstadoOperacionTarea.DatosInvalidos => Results.BadRequest(new { error = resultado.Error }),
+        _ => Results.BadRequest(new { error = resultado.Error })
+    };
+})
+    .RequireAuthorization(Politicas.Autenticado);
+
+app.MapPost("/api/tareas/{id:guid}/estado", async (
+    Guid id,
+    SolicitudCambiarEstado? solicitud,
+    ClaimsPrincipal usuarioAutenticado,
+    ServicioTareas servicioTareas) =>
+{
+    if (solicitud is null)
+    {
+        return Results.BadRequest(new { error = "El cuerpo de la solicitud es obligatorio." });
+    }
+
+    string? nombreEstado = Enum.GetNames<EstadoTarea>()
+        .FirstOrDefault(nombre => string.Equals(
+            nombre,
+            solicitud.Estado,
+            StringComparison.OrdinalIgnoreCase));
+    if (nombreEstado is null)
+    {
+        return Results.BadRequest(new { error = "El estado no es válido." });
+    }
+
+    if (!Guid.TryParse(
+        usuarioAutenticado.FindFirstValue(ClaimTypes.NameIdentifier),
+        out Guid idUsuario))
+    {
+        return Results.BadRequest(new { error = "La identidad del usuario no es válida." });
+    }
+
+    EstadoTarea estado = Enum.Parse<EstadoTarea>(nombreEstado);
+    ResultadoOperacionTarea resultado = await servicioTareas.CambiarEstadoAsync(
+        idUsuario,
+        usuarioAutenticado.IsInRole("Administrador"),
+        id,
+        estado,
+        solicitud.Motivo);
+
+    return resultado.Estado switch
+    {
+        EstadoOperacionTarea.Exitoso => Results.Ok(RespuestaTarea.Desde(resultado.Tarea!)),
+        EstadoOperacionTarea.NoEncontrado => Results.NotFound(new { error = resultado.Error }),
+        EstadoOperacionTarea.SinPermiso => Results.Json(
+            new { error = resultado.Error },
+            statusCode: StatusCodes.Status403Forbidden),
+        EstadoOperacionTarea.TransicionRechazada => Results.Conflict(new { error = resultado.Error }),
+        _ => Results.BadRequest(new { error = resultado.Error })
+    };
+})
+    .RequireAuthorization(Politicas.Autenticado);
+
+app.MapPost("/api/tareas/{id:guid}/comentarios", async (
+    Guid id,
+    SolicitudComentar? solicitud,
+    ClaimsPrincipal usuarioAutenticado,
+    ServicioTareas servicioTareas) =>
+{
+    if (solicitud is null)
+    {
+        return Results.BadRequest(new { error = "El cuerpo de la solicitud es obligatorio." });
+    }
+
+    if (!Guid.TryParse(
+        usuarioAutenticado.FindFirstValue(ClaimTypes.NameIdentifier),
+        out Guid idUsuario))
+    {
+        return Results.BadRequest(new { error = "La identidad del usuario no es válida." });
+    }
+
+    ResultadoComentarTarea resultado = await servicioTareas.ComentarAsync(
+        idUsuario,
+        usuarioAutenticado.IsInRole("Administrador"),
+        id,
+        solicitud.Texto);
+
+    return resultado.Estado switch
+    {
+        EstadoOperacionTarea.Exitoso => Results.Created(
+            $"/api/tareas/{id}/comentarios/{resultado.Comentario!.Id}",
+            RespuestaComentario.Desde(resultado.Comentario)),
+        EstadoOperacionTarea.NoEncontrado => Results.NotFound(new { error = resultado.Error }),
+        EstadoOperacionTarea.SinPermiso => Results.Json(
+            new { error = resultado.Error },
+            statusCode: StatusCodes.Status403Forbidden),
+        EstadoOperacionTarea.DatosInvalidos => Results.BadRequest(new { error = resultado.Error }),
+        _ => Results.BadRequest(new { error = resultado.Error })
+    };
+})
+    .RequireAuthorization(Politicas.Autenticado);
+
 app.MapPost("/api/registro", async (
     SolicitudRegistro? solicitud,
     ServicioRegistro servicioRegistro) =>
@@ -802,6 +932,12 @@ public sealed record SolicitudCrearProyecto(string? Nombre);
 
 public sealed record SolicitudCrearTarea(string? Titulo, Guid? IdPrioridad);
 
+public sealed record SolicitudAsignarResponsable(Guid? IdResponsable);
+
+public sealed record SolicitudCambiarEstado(string? Estado, string? Motivo);
+
+public sealed record SolicitudComentar(string? Texto);
+
 public sealed record RespuestaTarea(
     Guid Id,
     string Titulo,
@@ -821,4 +957,19 @@ public sealed record RespuestaTarea(
         tarea.Estado.ToString(),
         tarea.MotivoCancelacion,
         tarea.FechaCreacion);
+}
+
+public sealed record RespuestaComentario(
+    Guid Id,
+    Guid TareaId,
+    Guid UsuarioId,
+    string Texto,
+    DateTime FechaCreacion)
+{
+    public static RespuestaComentario Desde(Comentario comentario) => new(
+        comentario.Id,
+        comentario.TareaId,
+        comentario.UsuarioId,
+        comentario.Texto,
+        comentario.FechaCreacion);
 }
