@@ -4,6 +4,7 @@ using GestorTareas.ControlAcceso;
 using GestorTareas.GestionPermisos;
 using GestorTareas.Notificaciones;
 using GestorTareas.Negocio;
+using GestorTareas.Negocio.Entidades;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.EntityFrameworkCore;
@@ -52,6 +53,7 @@ builder.Services.AddScoped<InicializadorAdministrador>();
 builder.Services.AddScoped<ServicioUsuarios>();
 builder.Services.AddScoped<ServicioSolicitudesPermiso>();
 builder.Services.AddScoped<ServicioProyectos>();
+builder.Services.AddScoped<ServicioTareas>();
 builder.Services.AddAuthentication("Token")
     .AddScheme<AuthenticationSchemeOptions, ManejadorAutenticacionToken>("Token", _ => { });
 builder.Services.AddAuthorization(opciones =>
@@ -457,6 +459,80 @@ app.MapPost("/api/proyectos", async (
 })
     .RequireAuthorization(Politicas.Autenticado);
 
+app.MapGet("/api/proyectos/{id:guid}/progreso", async (
+    Guid id,
+    ClaimsPrincipal usuarioAutenticado,
+    ServicioProyectos servicioProyectos) =>
+{
+    if (!Guid.TryParse(
+        usuarioAutenticado.FindFirstValue(ClaimTypes.NameIdentifier),
+        out Guid idUsuario))
+    {
+        return Results.BadRequest(new { error = "La identidad del usuario no es válida." });
+    }
+
+    ResultadoProgresoProyecto resultado = await servicioProyectos.ObtenerProgresoAsync(
+        idUsuario,
+        usuarioAutenticado.IsInRole("Administrador"),
+        id);
+
+    return resultado.Estado switch
+    {
+        EstadoConsultaProyecto.Exitoso => Results.Ok(resultado.Progreso),
+        EstadoConsultaProyecto.NoEncontrado => Results.NotFound(new { error = resultado.Error }),
+        EstadoConsultaProyecto.SinPermiso => Results.Json(
+            new { error = resultado.Error },
+            statusCode: StatusCodes.Status403Forbidden),
+        _ => Results.BadRequest(new { error = resultado.Error })
+    };
+})
+    .RequireAuthorization(Politicas.Autenticado);
+
+app.MapPost("/api/proyectos/{id:guid}/tareas", async (
+    Guid id,
+    SolicitudCrearTarea? solicitud,
+    ClaimsPrincipal usuarioAutenticado,
+    ServicioTareas servicioTareas) =>
+{
+    if (solicitud is null)
+    {
+        return Results.BadRequest(new { error = "El cuerpo de la solicitud es obligatorio." });
+    }
+
+    if (solicitud.IdPrioridad is null)
+    {
+        return Results.BadRequest(new { error = "La prioridad es obligatoria." });
+    }
+
+    if (!Guid.TryParse(
+        usuarioAutenticado.FindFirstValue(ClaimTypes.NameIdentifier),
+        out Guid idUsuario))
+    {
+        return Results.BadRequest(new { error = "La identidad del usuario no es válida." });
+    }
+
+    ResultadoOperacionTarea resultado = await servicioTareas.CrearAsync(
+        idUsuario,
+        usuarioAutenticado.IsInRole("Administrador"),
+        id,
+        solicitud.Titulo,
+        solicitud.IdPrioridad.Value);
+
+    return resultado.Estado switch
+    {
+        EstadoOperacionTarea.Exitoso => Results.Created(
+            $"/api/tareas/{resultado.Tarea!.Id}",
+            RespuestaTarea.Desde(resultado.Tarea)),
+        EstadoOperacionTarea.NoEncontrado => Results.NotFound(new { error = resultado.Error }),
+        EstadoOperacionTarea.SinPermiso => Results.Json(
+            new { error = resultado.Error },
+            statusCode: StatusCodes.Status403Forbidden),
+        EstadoOperacionTarea.DatosInvalidos => Results.BadRequest(new { error = resultado.Error }),
+        _ => Results.BadRequest(new { error = resultado.Error })
+    };
+})
+    .RequireAuthorization(Politicas.Autenticado);
+
 app.MapPost("/api/registro", async (
     SolicitudRegistro? solicitud,
     ServicioRegistro servicioRegistro) =>
@@ -723,3 +799,26 @@ public sealed record SolicitudCrearPermiso(string? Permiso);
 public sealed record SolicitudRechazarPermiso(string? Motivo);
 
 public sealed record SolicitudCrearProyecto(string? Nombre);
+
+public sealed record SolicitudCrearTarea(string? Titulo, Guid? IdPrioridad);
+
+public sealed record RespuestaTarea(
+    Guid Id,
+    string Titulo,
+    Guid ProyectoId,
+    Guid PrioridadId,
+    Guid? UsuarioAsignadoId,
+    string Estado,
+    string? MotivoCancelacion,
+    DateTime FechaCreacion)
+{
+    public static RespuestaTarea Desde(Tarea tarea) => new(
+        tarea.Id,
+        tarea.Titulo,
+        tarea.ProyectoId,
+        tarea.PrioridadId,
+        tarea.UsuarioAsignadoId,
+        tarea.Estado.ToString(),
+        tarea.MotivoCancelacion,
+        tarea.FechaCreacion);
+}
