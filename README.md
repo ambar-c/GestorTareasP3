@@ -648,7 +648,209 @@ SELECT COLUMN_NAME, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH
 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'Tareas';
 ```
 
-`Estado` aparece como `nvarchar(20)`. Las pruebas de esta máquina y sus endpoints llegan en la semana 8.
+`Estado` aparece como `nvarchar(20)`. Los endpoints que usan esta máquina están en la sección «Módulo de negocio».
+
+## Módulo de negocio
+
+El módulo de negocio organiza tareas por proyecto y prioridad, con vista de progreso. Tiene 6 funcionalidades separables (RF-NEG-02). Todas exigen sesión (`401` sin token) y cada servicio verifica quién la pide (RF-NEG-06): el creador del proyecto, el responsable de la tarea o un Administrador.
+
+| Funcionalidad | Endpoint | Quién puede |
+|---|---|---|
+| Crear proyecto | `POST /api/proyectos` | Un Estándar con el permiso `CrearProyecto` aprobado en Gestión de permisos, o un Administrador |
+| Crear tarea | `POST /api/proyectos/{id}/tareas` | El creador del proyecto o un Administrador |
+| Asignar responsable | `PUT /api/tareas/{id}/responsable` | El creador del proyecto o un Administrador |
+| Cambiar estado | `POST /api/tareas/{id}/estado` | El responsable inicia, completa o devuelve; un Administrador cancela con motivo |
+| Comentar una tarea | `POST /api/tareas/{id}/comentarios` | El creador del proyecto, el responsable o un Administrador |
+| Ver el progreso | `GET /api/proyectos/{id}/progreso` | El creador del proyecto o un Administrador |
+
+Respuestas: `201` o `200` si todo sale bien, `400` si la entrada no es válida (RD-07), `403` si no te corresponde, `404` si no existe y `409` si la máquina de estados rechaza la transición (RF-NEG-04 y RF-NEG-05). El estado se envía como texto: `Pendiente`, `EnProgreso`, `Completada` o `Cancelada`.
+
+Las prioridades se crean con la migración del negocio:
+
+| Prioridad | Id |
+|---|---|
+| Alta | `11111111-1111-1111-1111-111111111111` |
+| Media | `22222222-2222-2222-2222-222222222222` |
+| Baja | `33333333-3333-3333-3333-333333333333` |
+
+### Preparación
+
+Con la API corriendo, abre otra ventana de PowerShell en la raíz del repositorio, carga el `.env` (sección «Variables de entorno») y define estas funciones de ayuda:
+
+```powershell
+$base = "http://localhost:5065"
+function LlamarSesion($metodo, $ruta, $cuerpo, $token) {
+  $p = @{ Uri = "$base$ruta"; Method = $metodo; UseBasicParsing = $true }
+  if ($cuerpo) { $p.ContentType = "application/json"; $p.Body = $cuerpo }
+  if ($token) { $p.Headers = @{ Authorization = "Bearer $token" } }
+  try {
+    $r = Invoke-WebRequest @p
+    "$($r.StatusCode) $($r.Content)"
+  } catch {
+    $resp = $_.Exception.Response
+    $texto = $_.ErrorDetails.Message
+    if (-not $texto -and $resp) { try { $texto = (New-Object System.IO.StreamReader($resp.GetResponseStream())).ReadToEnd() } catch {} }
+    "$([int]$resp.StatusCode) $texto"
+  }
+}
+function IdDe($respuesta) { ($respuesta -replace '^\d{3} ', '' | ConvertFrom-Json).id }
+function Login($correo, $clave) { (Invoke-RestMethod -Uri "$base/api/login" -Method Post -ContentType "application/json" -Body (@{ correo = $correo; contrasena = $clave } | ConvertTo-Json)).token }
+```
+
+Crea dos cuentas Estándar de prueba: el «dueño», que va a crear el proyecto, y el «otro», que no tiene nada que ver con él.
+
+```powershell
+LlamarSesion Post "/api/registro" '{"nombre":"Dueno P3","correo":"dueno.p3@example.com","contrasena":"Clave1234"}'
+LlamarSesion Post "/api/registro" '{"nombre":"Otro P3","correo":"otro.p3@example.com","contrasena":"Clave1234"}'
+```
+
+Las dos responden `201`. Actívalas con el enlace del correo o, solo para probar, en SSMS:
+
+```sql
+USE GestorTareas;
+UPDATE Usuarios SET Activo = 1 WHERE Correo IN ('dueno.p3@example.com', 'otro.p3@example.com');
+```
+
+Inicia sesión con las tres cuentas. El Administrador es el inicial de `ADMIN_CORREO` y `ADMIN_CLAVE`:
+
+```powershell
+$tokenAdmin = Login $env:ADMIN_CORREO $env:ADMIN_CLAVE
+$tokenDueno = Login "dueno.p3@example.com" "Clave1234"
+$tokenOtro  = Login "otro.p3@example.com"  "Clave1234"
+$idDueno = (Invoke-RestMethod "$base/api/yo" -Headers @{ Authorization = "Bearer $tokenDueno" }).id
+$alta = "11111111-1111-1111-1111-111111111111"
+```
+
+Dale al dueño el permiso `CrearProyecto`: lo solicita y el Administrador lo aprueba.
+
+```powershell
+$idSol = IdDe (LlamarSesion Post "/api/solicitudes-permisos" '{"permiso":"CrearProyecto"}' $tokenDueno)
+LlamarSesion Post "/api/solicitudes-permisos/$idSol/aprobar" $null $tokenAdmin
+```
+
+La aprobación responde `200` con `"estado":2` (Aplicada).
+
+### Cómo probar cada funcionalidad
+
+Ejecuta las líneas en orden: cada una usa los Id que guardaron las anteriores.
+
+**Crear proyecto (RF-NEG-02, RF-NEG-06 y el permiso de Gestión de permisos)**
+
+```powershell
+LlamarSesion Post "/api/proyectos" '{"nombre":"Sin sesion"}'
+LlamarSesion Post "/api/proyectos" '{"nombre":"Del otro"}' $tokenOtro
+$r = LlamarSesion Post "/api/proyectos" '{"nombre":"Proyecto P3"}' $tokenDueno; $r; $idProyecto = IdDe $r
+```
+
+| Caso | Resultado esperado |
+|---|---|
+| Sin sesión | `401` «Se requiere iniciar sesión.» |
+| El otro, sin el permiso aprobado | `403` «No tienes permiso para crear proyectos.» |
+| El dueño, con el permiso aprobado | `201` con el proyecto creado |
+
+**Crear tarea (RF-NEG-02, RF-NEG-06, RD-07)**
+
+```powershell
+$r = LlamarSesion Post "/api/proyectos/$idProyecto/tareas" (@{ titulo = "Primera tarea"; idPrioridad = $alta } | ConvertTo-Json) $tokenDueno; $r; $idTarea = IdDe $r
+LlamarSesion Post "/api/proyectos/$idProyecto/tareas" (@{ titulo = "Ajena"; idPrioridad = $alta } | ConvertTo-Json) $tokenOtro
+LlamarSesion Post "/api/proyectos/$idProyecto/tareas" (@{ titulo = "X"; idPrioridad = [guid]::NewGuid() } | ConvertTo-Json) $tokenDueno
+LlamarSesion Post "/api/proyectos/$idProyecto/tareas" '{"titulo":"X"}' $tokenDueno
+LlamarSesion Post "/api/proyectos/$([guid]::NewGuid())/tareas" (@{ titulo = "X"; idPrioridad = $alta } | ConvertTo-Json) $tokenDueno
+```
+
+| Caso | Resultado esperado |
+|---|---|
+| El dueño crea la tarea | `201` con `"estado":"Pendiente"` y `"usuarioAsignadoId":null` |
+| El otro crea una tarea en ese proyecto | `403` «No tienes permiso para crear tareas en este proyecto.» |
+| Prioridad que no existe | `400` «La prioridad no existe.» |
+| Sin prioridad | `400` «La prioridad es obligatoria.» |
+| Proyecto que no existe | `404` «El proyecto no existe.» |
+
+**Asignar responsable (RF-NEG-02, RF-NEG-06)**
+
+```powershell
+LlamarSesion Put "/api/tareas/$idTarea/responsable" (@{ idResponsable = $idDueno } | ConvertTo-Json) $tokenOtro
+LlamarSesion Put "/api/tareas/$idTarea/responsable" (@{ idResponsable = $idDueno } | ConvertTo-Json) $tokenDueno
+```
+
+| Caso | Resultado esperado |
+|---|---|
+| El otro asigna | `403` «No tienes permiso para asignar responsables.» |
+| El dueño se asigna como responsable | `200` con `usuarioAsignadoId` igual al Id del dueño |
+
+**Cambiar estado: transición prohibida, inicio y entrada inválida (RF-NEG-04, RF-NEG-06, RD-07)**
+
+```powershell
+LlamarSesion Post "/api/tareas/$idTarea/estado" '{"estado":"Completada"}' $tokenDueno
+LlamarSesion Get "/api/proyectos/$idProyecto/progreso" $null $tokenDueno
+LlamarSesion Post "/api/tareas/$idTarea/estado" '{"estado":"7"}' $tokenDueno
+LlamarSesion Post "/api/tareas/$idTarea/estado" '{"estado":"EnProgreso"}' $tokenOtro
+LlamarSesion Post "/api/tareas/$idTarea/estado" '{"estado":"EnProgreso"}' $tokenDueno
+```
+
+| Caso | Resultado esperado |
+|---|---|
+| `Pendiente → Completada`, la transición prohibida | `409` «Una tarea no se puede completar sin haberse empezado.» |
+| El estado no cambió | El progreso muestra `"pendientes":1` y `"completadas":0` |
+| Un estado que no existe (`"7"`) | `400` «El estado no es válido.» |
+| El otro, que no es el responsable, inicia la tarea | `403` «No tienes permiso para cambiar el estado de la tarea.» |
+| El responsable inicia la tarea | `200` con `"estado":"EnProgreso"` |
+
+**Comentar una tarea (RF-NEG-02, RF-NEG-06, RD-07)**
+
+```powershell
+LlamarSesion Post "/api/tareas/$idTarea/comentarios" '{"texto":"Empece con la primera parte"}' $tokenDueno
+LlamarSesion Post "/api/tareas/$idTarea/comentarios" '{"texto":"Hola"}' $tokenOtro
+LlamarSesion Post "/api/tareas/$idTarea/comentarios" '{"texto":"   "}' $tokenDueno
+```
+
+| Caso | Resultado esperado |
+|---|---|
+| El dueño comenta | `201` con el comentario |
+| El otro comenta | `403` «No tienes permiso para comentar esta tarea.» |
+| Comentario vacío | `400` «El comentario no es válido.» |
+
+**Cambiar estado: completar, estado terminal y cancelación (RF-NEG-05)**
+
+```powershell
+LlamarSesion Post "/api/tareas/$idTarea/estado" '{"estado":"Completada"}' $tokenDueno
+LlamarSesion Post "/api/tareas/$idTarea/estado" '{"estado":"EnProgreso"}' $tokenDueno
+$r = LlamarSesion Post "/api/proyectos/$idProyecto/tareas" (@{ titulo = "Segunda tarea"; idPrioridad = $alta } | ConvertTo-Json) $tokenDueno; $r; $idTarea2 = IdDe $r
+LlamarSesion Post "/api/tareas/$idTarea2/estado" '{"estado":"Cancelada"}' $tokenAdmin
+LlamarSesion Post "/api/tareas/$idTarea2/estado" '{"estado":"Cancelada","motivo":"Ya no hace falta"}' $tokenAdmin
+```
+
+| Caso | Resultado esperado |
+|---|---|
+| El responsable completa la tarea | `200` con `"estado":"Completada"` |
+| Salir del estado terminal | `409` «La tarea está en un estado final y no puede cambiar.» |
+| Crear una segunda tarea | `201` |
+| El Administrador cancela sin motivo | `409` «Debes indicar el motivo de la cancelación.» |
+| El Administrador cancela con motivo | `200` con `"estado":"Cancelada"` y el motivo guardado |
+
+**Ver el progreso (RF-NEG-02, RF-NEG-06)**
+
+```powershell
+LlamarSesion Get "/api/proyectos/$idProyecto/progreso" $null $tokenDueno
+LlamarSesion Get "/api/proyectos/$idProyecto/progreso" $null $tokenOtro
+LlamarSesion Get "/api/proyectos/$idProyecto/progreso"
+```
+
+| Caso | Resultado esperado |
+|---|---|
+| El dueño consulta | `200` con `"total":2`, `"completadas":1`, `"canceladas":1` y `"porcentajeCompletado":100`. Las canceladas no cuentan para el porcentaje. |
+| El otro consulta | `403` «No tienes permiso para consultar el progreso del proyecto.» |
+| Sin sesión | `401` |
+
+**Persistencia (RD-09)**
+
+Detén la API con `Ctrl+C`, arráncala de nuevo con el mismo `dotnet run` y repite la consulta del dueño:
+
+```powershell
+LlamarSesion Get "/api/proyectos/$idProyecto/progreso" $null $tokenDueno
+```
+
+Resultado esperado: el mismo `200` de antes. Los proyectos, las tareas, sus estados y la sesión se guardan en SQL Server y sobreviven al reinicio.
 
 ## Gestión de permisos
 
