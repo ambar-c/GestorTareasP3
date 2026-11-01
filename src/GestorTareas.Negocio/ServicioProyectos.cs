@@ -51,16 +51,7 @@ public sealed class ServicioProyectos(
         string? nombre,
         bool esAdministrador)
     {
-        if (!esAdministrador
-            && !await servicioSolicitudesPermiso.TienePermisoAsync(
-                idUsuarioCreador,
-                Permiso.CrearProyecto))
-        {
-            return new ResultadoCrearProyecto(
-                EstadoCrearProyecto.SinPermiso,
-                "No tienes permiso para crear proyectos.",
-                null);
-        }
+        
 
         string? nombreNormalizado = nombre?.Trim();
         if (string.IsNullOrWhiteSpace(nombreNormalizado)
