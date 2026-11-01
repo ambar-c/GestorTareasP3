@@ -20,7 +20,8 @@ public static class MaquinaEstadosTarea
         new(EstadoTarea.EnProgreso, EstadoTarea.Completada, ActorTransicion.Responsable),
         new(EstadoTarea.EnProgreso, EstadoTarea.Pendiente, ActorTransicion.Responsable),
         new(EstadoTarea.Pendiente, EstadoTarea.Cancelada, ActorTransicion.Administrador),
-        new(EstadoTarea.EnProgreso, EstadoTarea.Cancelada, ActorTransicion.Administrador)
+        new(EstadoTarea.EnProgreso, EstadoTarea.Cancelada, ActorTransicion.Administrador),
+                  new(EstadoTarea.Completada, EstadoTarea.EnProgreso, ActorTransicion.Responsable)
     ];
 
     private static readonly IReadOnlyList<TransicionProhibida> TransicionesProhibidas =
@@ -34,7 +35,7 @@ public static class MaquinaEstadosTarea
     private static readonly IReadOnlySet<EstadoTarea> EstadosTerminales =
         new HashSet<EstadoTarea>
         {
-            EstadoTarea.Completada,
+            
             EstadoTarea.Cancelada
         };
 
