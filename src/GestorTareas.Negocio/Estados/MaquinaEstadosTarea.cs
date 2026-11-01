@@ -77,12 +77,7 @@ public static class MaquinaEstadosTarea
                 "No tienes permiso para realizar esta transición.");
         }
 
-        if (tarea.Estado == EstadoTarea.Pendiente &&
-            hacia == EstadoTarea.EnProgreso &&
-            tarea.UsuarioAsignadoId is null)
-        {
-            return ResultadoTransicion.Rechazo("La tarea no tiene responsable asignado.");
-        }
+        
 
         if (hacia == EstadoTarea.Cancelada && string.IsNullOrWhiteSpace(motivo))
         {
