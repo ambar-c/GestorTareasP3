@@ -78,7 +78,6 @@ Abre `.env` y define:
 - `SMTP_HOST`, `SMTP_PUERTO` y `SMTP_NOMBRE_REMITENTE` ya traen un valor útil en la plantilla.
 - `APP_URL_BASE`: ya trae `http://localhost:5065` en la plantilla; cámbiala solo si usas otro puerto.
 - `ADMIN_NOMBRE`, `ADMIN_CORREO` y `ADMIN_CLAVE`: los datos del Administrador inicial, que se crea al arrancar la API. La clave debe cumplir la política de contraseña (8 o más caracteres, con letras y números).
-- `ADMIN_NOMBRE`, `ADMIN_CORREO` y `ADMIN_CLAVE`: el Administrador inicial, que la API crea al arrancar. La clave debe cumplir la política de contraseña: 8 o más caracteres, con letras y números.
 
 El archivo `.env` está en `.gitignore` y nunca se sube al repositorio.
 
@@ -1015,29 +1014,44 @@ Resultado esperado: `403 Forbidden`; la solicitud sigue en estado `0` (`Pendient
 
 ## Pruebas
 
-Desde la raíz del repositorio ejecuta:
+Toda la suite se ejecuta con un solo comando desde la raíz del repositorio, también en un clon limpio:
 
 ```powershell
 dotnet test
 ```
 
-Estas pruebas usan la base de datos en memoria, no necesitan Docker ni variables de
-entorno. El resultado esperado es `16` pruebas, `0` fallidas.
+No hace falta levantar la API, Docker ni la base de datos: las pruebas usan la base en memoria (InMemory) o la entidad directamente, y cada una prepara sus propios datos (RD-12). Resultado esperado: **64 pruebas, 0 fallidas**.
 
-Para ejecutar solo las pruebas del servicio de solicitudes:
+| Grupo | Archivo | Pruebas | Nombres |
+|---|---|---|---|
+| Gestión de permisos | `tests/GestorTareas.Pruebas/GestionPermisos/` | 29 | Empiezan por el requisito: `RF_GP_01_` a `RF_GP_07_` |
+| Máquina de estados de Tarea | `tests/GestorTareas.Pruebas/Negocio/MaquinaEstadosTareaPruebas.cs` | 32 | Empiezan por la fila de [`docs/maquina-de-estados.md`](docs/maquina-de-estados.md) que cubren: `P1_` a `P5_` (permitidas), `X1_` a `X5_` (prohibidas), `C1_` a `C4_` (condiciones) y `EstadoTerminal_` |
+| Integración con Gestión de permisos | `tests/GestorTareas.Pruebas/Integracion/IntegracionNegocioPermisosPruebas.cs` | 3 | `RF_NEG_06_`: usan `ServicioProyectos` y `ServicioSolicitudesPermiso` reales, sin dobles ni API |
+
+Para ejecutar un solo grupo:
 
 ```powershell
-dotnet test --filter "FullyQualifiedName~ServicioSolicitudesPermisoPruebas"
+dotnet test --filter "FullyQualifiedName~GestionPermisos"
+dotnet test --filter "FullyQualifiedName~MaquinaEstadosTareaPruebas"
+dotnet test --filter "FullyQualifiedName~IntegracionNegocioPermisosPruebas"
 ```
-## Pruebas
 
-Las pruebas de Gestión de permisos se ejecutan con un solo comando desde la raíz del repositorio:
+## Defectos (Práctica 3)
 
-```
+Cada defecto está en la etiqueta `practica-3-defecto-N`: un commit cuyo padre es `practica-3` y que solo cambia código de producción, ningún archivo de pruebas. Para ver fallar la suite con un defecto:
+
+```powershell
+git checkout practica-3-defecto-1
 dotnet test
+git checkout main
 ```
 
-No hace falta levantar la API, Docker ni la base de datos: las pruebas usan una base en memoria (InMemory) y cada una prepara sus propios datos. Resultado esperado: 29 pruebas, 0 fallidas. El nombre de cada prueba empieza por el requisito que cubre, de `RF_GP_01_` a `RF_GP_07_`.
+| Defecto | Qué se plantó | Prueba que lo detecta | Qué comprueba |
+|---|---|---|---|
+| 1 | `Pendiente → Completada` (fila X1, la primera prohibida) pasa a permitida | `X1_PendienteACompletada_ResponsableConTareaAsignada_SeRechazaYSigueEnPendiente` | Completar una tarea que no se ha empezado se rechaza y la tarea sigue en Pendiente. |
+| 2 | Sale una transición de `Completada`, que deja de ser terminal | `X4_DesdeCompletada_CualquierDestinoYActor_SeRechazaYSigueCompletada(destino: EnProgreso, actor: Responsable)` | Desde Completada ninguna transición se acepta y la tarea sigue Completada. |
+| 3 | Se quita la condición «la tarea tiene responsable asignado» de `Pendiente → EnProgreso` (fila P1) | `C1_PendienteAEnProgreso_SinResponsableAsignado_SeRechaza` | Una tarea sin responsable no puede pasar a EnProgreso. |
+| 4 | Se quita la consulta a Gestión de permisos de `ServicioProyectos.CrearAsync` | `RF_NEG_06_CrearProyecto_EstandarAntesYDespuesDeAprobar_SeRechazaYLuegoSeCrea` | Un Estándar no crea proyectos mientras su solicitud de `CrearProyecto` no está aprobada, y sí después de que un Administrador la aprueba. |
 
 ## Defectos (Práctica 2, variante A)
 
