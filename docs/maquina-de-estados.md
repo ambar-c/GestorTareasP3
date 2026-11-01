@@ -1,6 +1,6 @@
 # Máquina de estados de Tarea
 
-La entidad central del módulo de negocio es `Tarea`. Su estado sigue esta máquina, independiente de la de Gestión de permisos del Core (RF-NEG-09).
+La entidad central del módulo de negocio es `Tarea`. Su estado sigue esta máquina, independiente de la de Gestión de permisos del Core (RF-NEG-09): no comparten estados, ni código, ni tablas.
 
 ## Estados
 
@@ -17,16 +17,29 @@ Declarados en un solo lugar: `src/GestorTareas.Negocio/Entidades/EstadoTarea.cs`
 
 Declaradas en un solo lugar: `src/GestorTareas.Negocio/Estados/MaquinaEstadosTarea.cs` (RD-04). La única forma de cambiar el estado es `Tarea.CambiarEstado`. Un rechazo devuelve un mensaje y el estado no cambia.
 
-| Desde | Hacia | Quién la ejecuta | Condición |
+### Transiciones permitidas
+
+| # | Desde | Hacia | Quién la ejecuta | Condición |
+|---|---|---|---|---|
+| P1 | Pendiente | EnProgreso | Responsable | La tarea tiene responsable asignado. |
+| P2 | EnProgreso | Completada | Responsable | — |
+| P3 | EnProgreso | Pendiente | Responsable | — (se devuelve sin terminar) |
+| P4 | Pendiente | Cancelada | Administrador | Exige un motivo escrito. |
+| P5 | EnProgreso | Cancelada | Administrador | Exige un motivo escrito. |
+
+Si quien la pide no es el actor de la columna «Quién la ejecuta», o no se cumple la condición, la transición se rechaza y el estado no cambia.
+
+### Transiciones prohibidas
+
+| # | Desde | Hacia | Por qué se rechaza |
 |---|---|---|---|
-| Pendiente | EnProgreso | Responsable | La tarea tiene responsable asignado. |
-| EnProgreso | Completada | Responsable | — |
-| EnProgreso | Pendiente | Responsable | Se devuelve sin terminar. |
-| Pendiente | Cancelada | Administrador | Exige un motivo escrito. |
-| EnProgreso | Cancelada | Administrador | Exige un motivo escrito. |
-| Pendiente | Completada | — | **Prohibida de forma explícita** (RF-NEG-04): una tarea no se puede completar sin haberse empezado. |
-| Completada o Cancelada | Cualquiera | — | **Prohibida**: son estados terminales (RF-NEG-05). |
-| Cualquier otra combinación | — | — | **Prohibida.** El sistema la rechaza y el estado no cambia. |
+| X1 | Pendiente | Completada | **Prohibida de forma explícita** (RF-NEG-04): una tarea no se puede completar sin haberse empezado. |
+| X2 | Pendiente | Pendiente | No es un cambio de estado. |
+| X3 | EnProgreso | EnProgreso | No es un cambio de estado. |
+| X4 | Completada | Cualquiera | Estado terminal (RF-NEG-05): ninguna transición parte de él. |
+| X5 | Cancelada | Cualquiera | Estado terminal (RF-NEG-05): ninguna transición parte de él. |
+
+Con las cinco permitidas y estas cinco filas quedan cubiertas las 16 combinaciones de origen y destino.
 
 ## Diagrama
 
@@ -51,6 +64,6 @@ stateDiagram-v2
 5. `Pendiente → EnProgreso` sin responsable asignado se rechaza.
 6. Una cancelación sin motivo se rechaza.
 
-## Alcance actual
+## Pruebas
 
-En la Práctica 1 se entrega la estructura. Las pruebas de esta máquina llegan en la semana 8, y los endpoints que la usan llegan con el módulo de negocio.
+Cada fila de las dos tablas tiene al menos una prueba en `tests/GestorTareas.Pruebas/Negocio/MaquinaEstadosTareaPruebas.cs`, y el nombre de la prueba empieza con su número de fila (`P1_`, `X1_`…). Las condiciones de las transiciones permitidas tienen pruebas propias que empiezan con `C`. Las pruebas usan la entidad `Tarea` directamente, sin base de datos ni API (RD-12). Se ejecutan con el comando de la sección «Pruebas» del README.
