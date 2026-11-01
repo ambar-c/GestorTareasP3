@@ -20,15 +20,12 @@ public static class MaquinaEstadosTarea
         new(EstadoTarea.EnProgreso, EstadoTarea.Completada, ActorTransicion.Responsable),
         new(EstadoTarea.EnProgreso, EstadoTarea.Pendiente, ActorTransicion.Responsable),
         new(EstadoTarea.Pendiente, EstadoTarea.Cancelada, ActorTransicion.Administrador),
-        new(EstadoTarea.EnProgreso, EstadoTarea.Cancelada, ActorTransicion.Administrador)
+        new(EstadoTarea.EnProgreso, EstadoTarea.Cancelada, ActorTransicion.Administrador),
+                  new(EstadoTarea.Pendiente, EstadoTarea.Completada, ActorTransicion.Responsable)
     ];
 
     private static readonly IReadOnlyList<TransicionProhibida> TransicionesProhibidas =
     [
-        new(
-            EstadoTarea.Pendiente,
-            EstadoTarea.Completada,
-            "Una tarea no se puede completar sin haberse empezado.")
     ];
 
     private static readonly IReadOnlySet<EstadoTarea> EstadosTerminales =
