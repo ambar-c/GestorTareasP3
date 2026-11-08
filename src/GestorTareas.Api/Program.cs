@@ -41,6 +41,13 @@ builder.Services.AddDbContext<NegocioDbContext>(opciones =>
         opcionesSql => opcionesSql.MigrationsHistoryTable("__EFMigrationsHistory_Negocio")));
 builder.Services.AddScoped<IColaCorreos, ColaCorreos>();
 
+string? rutaDocumentos = builder.Configuration["DOCUMENTOS_RUTA"];
+if (string.IsNullOrWhiteSpace(rutaDocumentos))
+{
+    rutaDocumentos = "datos/documentos";
+}
+builder.Services.AddSingleton(new OpcionesAlmacenamientoDocumentos(rutaDocumentos));
+
 var urlBase = builder.Configuration["APP_URL_BASE"];
 if (string.IsNullOrWhiteSpace(urlBase))
 {
@@ -57,6 +64,7 @@ builder.Services.AddScoped<ServicioAutenticacion>();
 builder.Services.AddScoped<InicializadorAdministrador>();
 builder.Services.AddScoped<ServicioUsuarios>();
 builder.Services.AddScoped<ServicioSolicitudesPermiso>();
+builder.Services.AddScoped<ServicioDocumentos>();
 builder.Services.AddScoped<ServicioProyectos>();
 builder.Services.AddScoped<ServicioTareas>();
 builder.Services.AddAuthentication("Token")
