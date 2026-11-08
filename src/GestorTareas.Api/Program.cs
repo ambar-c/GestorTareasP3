@@ -507,6 +507,69 @@ app.MapGet("/api/documentos", async (
 })
     .RequireAuthorization(Politicas.Autenticado);
 
+app.MapGet("/api/documentos/{id:guid}/descargar", async (
+    Guid id,
+    ClaimsPrincipal usuarioAutenticado,
+    ServicioDocumentos servicioDocumentos) =>
+{
+    if (!Guid.TryParse(
+        usuarioAutenticado.FindFirstValue(ClaimTypes.NameIdentifier),
+        out Guid idUsuario))
+    {
+        return Results.BadRequest(new { error = "La identidad del usuario no es válida." });
+    }
+
+    ResultadoDescargarDocumento resultado = await servicioDocumentos.DescargarAsync(
+        idUsuario,
+        usuarioAutenticado.IsInRole("Administrador"),
+        id);
+
+    return resultado.Estado switch
+    {
+        EstadoOperacionDocumento.Exitoso => Results.File(
+            resultado.Contenido!,
+            resultado.TipoContenido!,
+            resultado.NombreOriginal!),
+        EstadoOperacionDocumento.NoEncontrado => Results.NotFound(new { error = resultado.Error }),
+        EstadoOperacionDocumento.SinPermiso => Results.Json(
+            new { error = resultado.Error },
+            statusCode: StatusCodes.Status403Forbidden),
+        EstadoOperacionDocumento.ArchivoNoDisponible => Results.Conflict(
+            new { error = resultado.Error }),
+        _ => Results.BadRequest(new { error = resultado.Error })
+    };
+})
+    .RequireAuthorization(Politicas.Autenticado);
+
+app.MapDelete("/api/documentos/{id:guid}", async (
+    Guid id,
+    ClaimsPrincipal usuarioAutenticado,
+    ServicioDocumentos servicioDocumentos) =>
+{
+    if (!Guid.TryParse(
+        usuarioAutenticado.FindFirstValue(ClaimTypes.NameIdentifier),
+        out Guid idUsuario))
+    {
+        return Results.BadRequest(new { error = "La identidad del usuario no es válida." });
+    }
+
+    ResultadoEliminarDocumento resultado = await servicioDocumentos.EliminarAsync(
+        idUsuario,
+        usuarioAutenticado.IsInRole("Administrador"),
+        id);
+
+    return resultado.Estado switch
+    {
+        EstadoOperacionDocumento.Exitoso => Results.NoContent(),
+        EstadoOperacionDocumento.NoEncontrado => Results.NotFound(new { error = resultado.Error }),
+        EstadoOperacionDocumento.SinPermiso => Results.Json(
+            new { error = resultado.Error },
+            statusCode: StatusCodes.Status403Forbidden),
+        _ => Results.BadRequest(new { error = resultado.Error })
+    };
+})
+    .RequireAuthorization(Politicas.Autenticado);
+
 app.MapPost("/api/proyectos", async (
     SolicitudCrearProyecto? solicitud,
     ClaimsPrincipal usuarioAutenticado,
