@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using GestorTareas.Api;
 using GestorTareas.ControlAcceso;
+using GestorTareas.Documentos;
 using GestorTareas.GestionPermisos;
 using GestorTareas.Notificaciones;
 using GestorTareas.Negocio;
@@ -22,6 +23,10 @@ if (string.IsNullOrWhiteSpace(cadenaConexion))
 
 builder.Services.AddDbContext<ContextoControlAcceso>(opciones =>
     opciones.UseSqlServer(cadenaConexion));
+builder.Services.AddDbContext<ContextoDocumentos>(opciones =>
+    opciones.UseSqlServer(
+        cadenaConexion,
+        opcionesSql => opcionesSql.MigrationsHistoryTable("__EFMigrationsHistory_Documentos")));
 builder.Services.AddDbContext<ContextoGestionPermisos>(opciones =>
     opciones.UseSqlServer(
         cadenaConexion,
