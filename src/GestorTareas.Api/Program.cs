@@ -466,7 +466,7 @@ app.MapPost("/api/documentos", async (
     }
 
     return Results.Created(
-        $"/api/documentos/{resultado.Documento!.Id}",
+        $"/api/documentos/{resultado.Documento!.Id}/descargar",
         new
         {
             id = resultado.Documento.Id,
