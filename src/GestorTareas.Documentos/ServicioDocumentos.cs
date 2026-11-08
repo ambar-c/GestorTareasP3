@@ -1,4 +1,5 @@
 using GestorTareas.Documentos.Entidades;
+using Microsoft.EntityFrameworkCore;
 
 namespace GestorTareas.Documentos;
 
@@ -6,6 +7,18 @@ public sealed record ResultadoSubirDocumento(
     bool Exito,
     string? Error,
     Documento? Documento);
+
+public sealed record ResultadoListarDocumentos(
+    bool Exito,
+    string? Error,
+    List<Documento> Documentos);
+
+public sealed record ResultadoDescargarDocumento(
+    bool Exito,
+    string? Error,
+    Stream? Contenido,
+    string? NombreOriginal,
+    string? TipoContenido);
 
 public sealed class ServicioDocumentos(
     ContextoDocumentos contexto,
@@ -124,6 +137,104 @@ public sealed class ServicioDocumentos(
             }
 
             throw;
+        }
+    }
+
+    public async Task<ResultadoListarDocumentos> ListarAsync(
+        Guid idUsuario,
+        bool esAdministrador)
+    {
+        IQueryable<Documento> consulta = contexto.Documentos
+            .AsNoTracking()
+            .Where(documento => !documento.Eliminado);
+
+        if (!esAdministrador)
+        {
+            consulta = consulta.Where(documento =>
+                documento.IdUsuarioPropietario == idUsuario);
+        }
+
+        List<Documento> documentos = await consulta
+            .OrderByDescending(documento => documento.FechaSubida)
+            .ToListAsync();
+
+        return new ResultadoListarDocumentos(true, null, documentos);
+    }
+
+    public async Task<ResultadoDescargarDocumento> DescargarAsync(
+        Guid idUsuario,
+        bool esAdministrador,
+        Guid idDocumento)
+    {
+        Documento? documento = await contexto.Documentos
+            .AsNoTracking()
+            .SingleOrDefaultAsync(documento => documento.Id == idDocumento);
+
+        if (documento is null || documento.Eliminado)
+        {
+            return new ResultadoDescargarDocumento(
+                false,
+                "Documento no encontrado.",
+                null,
+                null,
+                null);
+        }
+
+        if (!esAdministrador && documento.IdUsuarioPropietario != idUsuario)
+        {
+            return new ResultadoDescargarDocumento(
+                false,
+                "No tienes permiso para descargar este documento.",
+                null,
+                null,
+                null);
+        }
+
+        string rutaArchivo = Path.Combine(opciones.Ruta, documento.NombreAlmacenado);
+        if (!File.Exists(rutaArchivo))
+        {
+            return new ResultadoDescargarDocumento(
+                false,
+                "El archivo del documento no está disponible.",
+                null,
+                null,
+                null);
+        }
+
+        try
+        {
+            Stream contenido = new FileStream(
+                rutaArchivo,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                bufferSize: 81920,
+                options: FileOptions.Asynchronous | FileOptions.SequentialScan);
+
+            return new ResultadoDescargarDocumento(
+                true,
+                null,
+                contenido,
+                documento.NombreOriginal,
+                documento.TipoContenido);
+        }
+        catch (FileNotFoundException)
+        {
+            return new ResultadoDescargarDocumento(
+                false,
+                "El archivo del documento no está disponible.",
+                null,
+                null,
+                null);
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return new ResultadoDescargarDocumento(
+                false,
+                "El archivo del documento no está disponible.",
+                null,
+                null,
+                null);
         }
     }
 }
