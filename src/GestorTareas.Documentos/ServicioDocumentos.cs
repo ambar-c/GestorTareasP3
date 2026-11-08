@@ -29,6 +29,12 @@ public sealed record ResultadoDescargarDocumento(
     string? NombreOriginal,
     string? TipoContenido);
 
+public sealed record ResultadoEliminarDocumento(
+    EstadoOperacionDocumento Estado,
+    bool Exito,
+    string? Error,
+    Documento? Documento);
+
 public sealed class ServicioDocumentos(
     ContextoDocumentos contexto,
     OpcionesAlmacenamientoDocumentos opciones)
@@ -251,5 +257,41 @@ public sealed class ServicioDocumentos(
                 null,
                 null);
         }
+    }
+
+    public async Task<ResultadoEliminarDocumento> EliminarAsync(
+        Guid idUsuario,
+        bool esAdministrador,
+        Guid idDocumento)
+    {
+        Documento? documento = await contexto.Documentos
+            .SingleOrDefaultAsync(documento => documento.Id == idDocumento);
+
+        if (documento is null || documento.Eliminado)
+        {
+            return new ResultadoEliminarDocumento(
+                EstadoOperacionDocumento.NoEncontrado,
+                false,
+                "Documento no encontrado.",
+                null);
+        }
+
+        if (!esAdministrador && documento.IdUsuarioPropietario != idUsuario)
+        {
+            return new ResultadoEliminarDocumento(
+                EstadoOperacionDocumento.SinPermiso,
+                false,
+                "No tienes permiso para eliminar este documento.",
+                null);
+        }
+
+        documento.Eliminado = true;
+        await contexto.SaveChangesAsync();
+
+        return new ResultadoEliminarDocumento(
+            EstadoOperacionDocumento.Exitoso,
+            true,
+            null,
+            documento);
     }
 }
