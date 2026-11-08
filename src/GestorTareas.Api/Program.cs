@@ -436,6 +436,77 @@ app.MapGet("/api/solicitudes-permisos", async (
 })
     .RequireAuthorization(Politicas.Autenticado);
 
+app.MapPost("/api/documentos", async (
+    IFormFile? archivo,
+    ClaimsPrincipal usuarioAutenticado,
+    ServicioDocumentos servicioDocumentos) =>
+{
+    if (archivo is null)
+    {
+        return Results.BadRequest(new { error = "El archivo es obligatorio." });
+    }
+
+    if (!Guid.TryParse(
+        usuarioAutenticado.FindFirstValue(ClaimTypes.NameIdentifier),
+        out Guid idUsuario))
+    {
+        return Results.BadRequest(new { error = "La identidad del usuario no es válida." });
+    }
+
+    await using Stream contenido = archivo.OpenReadStream();
+    ResultadoSubirDocumento resultado = await servicioDocumentos.SubirAsync(
+        idUsuario,
+        archivo.FileName,
+        archivo.ContentType,
+        contenido);
+
+    if (!resultado.Exito)
+    {
+        return Results.BadRequest(new { error = resultado.Error });
+    }
+
+    return Results.Created(
+        $"/api/documentos/{resultado.Documento!.Id}",
+        new
+        {
+            id = resultado.Documento.Id,
+            nombreOriginal = resultado.Documento.NombreOriginal,
+            tipoContenido = resultado.Documento.TipoContenido,
+            tamanoBytes = resultado.Documento.TamanoBytes,
+            fechaSubida = resultado.Documento.FechaSubida,
+            idUsuarioPropietario = resultado.Documento.IdUsuarioPropietario
+        });
+})
+    .RequireAuthorization(Politicas.Autenticado)
+    .DisableAntiforgery();
+
+app.MapGet("/api/documentos", async (
+    ClaimsPrincipal usuarioAutenticado,
+    ServicioDocumentos servicioDocumentos) =>
+{
+    if (!Guid.TryParse(
+        usuarioAutenticado.FindFirstValue(ClaimTypes.NameIdentifier),
+        out Guid idUsuario))
+    {
+        return Results.BadRequest(new { error = "La identidad del usuario no es válida." });
+    }
+
+    ResultadoListarDocumentos resultado = await servicioDocumentos.ListarAsync(
+        idUsuario,
+        usuarioAutenticado.IsInRole("Administrador"));
+
+    return Results.Ok(resultado.Documentos.Select(documento => new
+    {
+        id = documento.Id,
+        nombreOriginal = documento.NombreOriginal,
+        tipoContenido = documento.TipoContenido,
+        tamanoBytes = documento.TamanoBytes,
+        fechaSubida = documento.FechaSubida,
+        idUsuarioPropietario = documento.IdUsuarioPropietario
+    }));
+})
+    .RequireAuthorization(Politicas.Autenticado);
+
 app.MapPost("/api/proyectos", async (
     SolicitudCrearProyecto? solicitud,
     ClaimsPrincipal usuarioAutenticado,
