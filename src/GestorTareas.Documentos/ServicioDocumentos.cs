@@ -8,12 +8,21 @@ public sealed record ResultadoSubirDocumento(
     string? Error,
     Documento? Documento);
 
+public enum EstadoOperacionDocumento
+{
+    Exitoso,
+    NoEncontrado,
+    SinPermiso,
+    ArchivoNoDisponible
+}
+
 public sealed record ResultadoListarDocumentos(
     bool Exito,
     string? Error,
     List<Documento> Documentos);
 
 public sealed record ResultadoDescargarDocumento(
+    EstadoOperacionDocumento Estado,
     bool Exito,
     string? Error,
     Stream? Contenido,
@@ -173,6 +182,7 @@ public sealed class ServicioDocumentos(
         if (documento is null || documento.Eliminado)
         {
             return new ResultadoDescargarDocumento(
+                EstadoOperacionDocumento.NoEncontrado,
                 false,
                 "Documento no encontrado.",
                 null,
@@ -183,6 +193,7 @@ public sealed class ServicioDocumentos(
         if (!esAdministrador && documento.IdUsuarioPropietario != idUsuario)
         {
             return new ResultadoDescargarDocumento(
+                EstadoOperacionDocumento.SinPermiso,
                 false,
                 "No tienes permiso para descargar este documento.",
                 null,
@@ -194,6 +205,7 @@ public sealed class ServicioDocumentos(
         if (!File.Exists(rutaArchivo))
         {
             return new ResultadoDescargarDocumento(
+                EstadoOperacionDocumento.ArchivoNoDisponible,
                 false,
                 "El archivo del documento no está disponible.",
                 null,
@@ -212,6 +224,7 @@ public sealed class ServicioDocumentos(
                 options: FileOptions.Asynchronous | FileOptions.SequentialScan);
 
             return new ResultadoDescargarDocumento(
+                EstadoOperacionDocumento.Exitoso,
                 true,
                 null,
                 contenido,
@@ -221,6 +234,7 @@ public sealed class ServicioDocumentos(
         catch (FileNotFoundException)
         {
             return new ResultadoDescargarDocumento(
+                EstadoOperacionDocumento.ArchivoNoDisponible,
                 false,
                 "El archivo del documento no está disponible.",
                 null,
@@ -230,6 +244,7 @@ public sealed class ServicioDocumentos(
         catch (DirectoryNotFoundException)
         {
             return new ResultadoDescargarDocumento(
+                EstadoOperacionDocumento.ArchivoNoDisponible,
                 false,
                 "El archivo del documento no está disponible.",
                 null,
