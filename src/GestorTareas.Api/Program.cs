@@ -39,6 +39,9 @@ builder.Services.AddDbContext<NegocioDbContext>(opciones =>
     opciones.UseSqlServer(
         cadenaConexion,
         opcionesSql => opcionesSql.MigrationsHistoryTable("__EFMigrationsHistory_Negocio")));
+builder.Services.AddSingleton(new OpcionesClima(builder.Configuration["CLIMA_API_KEY"]));
+builder.Services.AddHttpClient<IServicioClima, ServicioClima>(cliente =>
+    cliente.Timeout = TimeSpan.FromSeconds(5));
 builder.Services.AddScoped<IColaCorreos, ColaCorreos>();
 
 string? rutaDocumentos = builder.Configuration["DOCUMENTOS_RUTA"];
