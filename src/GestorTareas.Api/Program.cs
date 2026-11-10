@@ -13,6 +13,7 @@ using Microsoft.EntityFrameworkCore;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Logging.AddFilter("Microsoft.AspNetCore.Hosting.Diagnostics", LogLevel.Warning);
+builder.Logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
 
 var cadenaConexion = builder.Configuration.GetConnectionString("Default");
 if (string.IsNullOrWhiteSpace(cadenaConexion))
@@ -638,6 +639,122 @@ app.MapGet("/api/proyectos/{id:guid}/progreso", async (
 })
     .RequireAuthorization(Politicas.Autenticado);
 
+app.MapPut("/api/proyectos/{id:guid}/ciudad", async (
+    Guid id,
+    SolicitudAsignarCiudad? solicitud,
+    ClaimsPrincipal usuarioAutenticado,
+    ServicioProyectos servicioProyectos) =>
+{
+    if (solicitud is null)
+    {
+        return Results.BadRequest(new { error = "El cuerpo de la solicitud es obligatorio." });
+    }
+
+    if (!Guid.TryParse(
+        usuarioAutenticado.FindFirstValue(ClaimTypes.NameIdentifier),
+        out Guid idUsuario))
+    {
+        return Results.BadRequest(new { error = "La identidad del usuario no es válida." });
+    }
+
+    ResultadoAsignarCiudadProyecto resultado = await servicioProyectos.AsignarCiudadAsync(
+        idUsuario,
+        usuarioAutenticado.IsInRole("Administrador"),
+        id,
+        solicitud.Ciudad);
+
+    return resultado.Estado switch
+    {
+        EstadoAsignarCiudadProyecto.Exitoso => Results.Ok(new
+        {
+            id = resultado.Proyecto!.Id,
+            nombre = resultado.Proyecto.Nombre,
+            ciudad = resultado.Proyecto.Ciudad
+        }),
+        EstadoAsignarCiudadProyecto.NoEncontrado => Results.NotFound(new { error = resultado.Error }),
+        EstadoAsignarCiudadProyecto.SinPermiso => Results.Json(
+            new { error = resultado.Error },
+            statusCode: StatusCodes.Status403Forbidden),
+        EstadoAsignarCiudadProyecto.DatosInvalidos => Results.BadRequest(new { error = resultado.Error }),
+        _ => Results.BadRequest(new { error = resultado.Error })
+    };
+})
+    .RequireAuthorization(Politicas.Autenticado);
+
+app.MapGet("/api/proyectos/{id:guid}/resumen", async (
+    Guid id,
+    ClaimsPrincipal usuarioAutenticado,
+    ServicioProyectos servicioProyectos,
+    NegocioDbContext contexto,
+    IServicioClima servicioClima) =>
+{
+    if (!Guid.TryParse(
+        usuarioAutenticado.FindFirstValue(ClaimTypes.NameIdentifier),
+        out Guid idUsuario))
+    {
+        return Results.BadRequest(new { error = "La identidad del usuario no es válida." });
+    }
+
+    ResultadoProgresoProyecto resultadoProgreso = await servicioProyectos.ObtenerProgresoAsync(
+        idUsuario,
+        usuarioAutenticado.IsInRole("Administrador"),
+        id);
+
+    if (resultadoProgreso.Estado != EstadoConsultaProyecto.Exitoso)
+    {
+        return resultadoProgreso.Estado switch
+        {
+            EstadoConsultaProyecto.NoEncontrado => Results.NotFound(new { error = resultadoProgreso.Error }),
+            EstadoConsultaProyecto.SinPermiso => Results.Json(
+                new { error = resultadoProgreso.Error },
+                statusCode: StatusCodes.Status403Forbidden),
+            _ => Results.BadRequest(new { error = resultadoProgreso.Error })
+        };
+    }
+
+    Proyecto? proyecto = await contexto.Proyectos
+        .AsNoTracking()
+        .SingleOrDefaultAsync(proyecto => proyecto.Id == id);
+
+    if (proyecto?.Ciudad is null)
+    {
+        return Results.Ok(new
+        {
+            progreso = resultadoProgreso.Progreso,
+            clima = (object?)null
+        });
+    }
+
+    ResultadoClima resultadoClima = await servicioClima.ObtenerClimaActualAsync(proyecto.Ciudad);
+    return resultadoClima.Estado switch
+    {
+        EstadoClima.Exitoso => Results.Ok(new
+        {
+            progreso = resultadoProgreso.Progreso,
+            clima = new
+            {
+                temperatura = resultadoClima.Clima!.TemperaturaCelsius,
+                humedad = resultadoClima.Clima.Humedad,
+                descripcion = resultadoClima.Clima.DescripcionCondicion,
+                ciudad = resultadoClima.Clima.Ciudad
+            }
+        }),
+        EstadoClima.SinClave => Results.Json(
+            new { error = "El servicio de clima no está configurado en este momento." },
+            statusCode: StatusCodes.Status503ServiceUnavailable),
+        EstadoClima.CiudadNoEncontrada => Results.Json(
+            new { error = "No se encontró la ciudad configurada para el proyecto." },
+            statusCode: StatusCodes.Status503ServiceUnavailable),
+        EstadoClima.ApiNoDisponible => Results.Json(
+            new { error = "El servicio de clima no está disponible en este momento." },
+            statusCode: StatusCodes.Status503ServiceUnavailable),
+        _ => Results.Json(
+            new { error = "El servicio de clima no está disponible en este momento." },
+            statusCode: StatusCodes.Status503ServiceUnavailable)
+    };
+})
+    .RequireAuthorization(Politicas.Autenticado);
+
 app.MapPost("/api/proyectos/{id:guid}/tareas", async (
     Guid id,
     SolicitudCrearTarea? solicitud,
@@ -1079,6 +1196,8 @@ public sealed record SolicitudCrearPermiso(string? Permiso);
 public sealed record SolicitudRechazarPermiso(string? Motivo);
 
 public sealed record SolicitudCrearProyecto(string? Nombre);
+
+public sealed record SolicitudAsignarCiudad(string? Ciudad);
 
 public sealed record SolicitudCrearTarea(string? Titulo, Guid? IdPrioridad);
 
