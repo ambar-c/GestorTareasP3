@@ -18,6 +18,7 @@
   <ItemGroup>
     <ProjectReference Include="../../src/GestorTareas.GestionPermisos/GestorTareas.GestionPermisos.csproj" />
     <ProjectReference Include="../../src/GestorTareas.Negocio/GestorTareas.Negocio.csproj" />
+    <ProjectReference Include="..\..\src\GestorTareas.Documentos\GestorTareas.Documentos.csproj" />
   </ItemGroup>
 
   <ItemGroup>
