@@ -42,6 +42,19 @@ public sealed record ResultadoProgresoProyecto(
     string? Error,
     ProgresoProyecto? Progreso);
 
+public enum EstadoAsignarCiudadProyecto
+{
+    Exitoso,
+    NoEncontrado,
+    SinPermiso,
+    DatosInvalidos
+}
+
+public sealed record ResultadoAsignarCiudadProyecto(
+    EstadoAsignarCiudadProyecto Estado,
+    string? Error,
+    Proyecto? Proyecto);
+
 public sealed class ServicioProyectos(
     NegocioDbContext contexto,
     ServicioSolicitudesPermiso servicioSolicitudesPermiso)
@@ -139,5 +152,49 @@ public sealed class ServicioProyectos(
                 completadas,
                 canceladas,
                 porcentajeCompletado));
+    }
+
+    public async Task<ResultadoAsignarCiudadProyecto> AsignarCiudadAsync(
+        Guid idUsuario,
+        bool esAdministrador,
+        Guid idProyecto,
+        string? ciudad)
+    {
+        Proyecto? proyecto = await contexto.Proyectos
+            .SingleOrDefaultAsync(proyecto => proyecto.Id == idProyecto);
+
+        if (proyecto is null)
+        {
+            return new ResultadoAsignarCiudadProyecto(
+                EstadoAsignarCiudadProyecto.NoEncontrado,
+                "El proyecto no existe.",
+                null);
+        }
+
+        if (!esAdministrador && proyecto.UsuarioCreadorId != idUsuario)
+        {
+            return new ResultadoAsignarCiudadProyecto(
+                EstadoAsignarCiudadProyecto.SinPermiso,
+                "No tienes permiso para asignar la ciudad del proyecto.",
+                null);
+        }
+
+        string ciudadNormalizada = ciudad?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(ciudadNormalizada)
+            || ciudadNormalizada.Length > 100)
+        {
+            return new ResultadoAsignarCiudadProyecto(
+                EstadoAsignarCiudadProyecto.DatosInvalidos,
+                "La ciudad no es válida.",
+                null);
+        }
+
+        proyecto.Ciudad = ciudadNormalizada;
+        await contexto.SaveChangesAsync();
+
+        return new ResultadoAsignarCiudadProyecto(
+            EstadoAsignarCiudadProyecto.Exitoso,
+            null,
+            proyecto);
     }
 }

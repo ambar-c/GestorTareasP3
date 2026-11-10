@@ -18,6 +18,8 @@ public class NegocioDbContext(DbContextOptions<NegocioDbContext> options) : DbCo
         proyecto.Property(p => p.Nombre)
             .IsRequired()
             .HasMaxLength(100);
+        proyecto.Property(p => p.Ciudad)
+            .HasMaxLength(100);
         proyecto.HasMany(p => p.Tareas)
             .WithOne()
             .HasForeignKey(t => t.ProyectoId)
