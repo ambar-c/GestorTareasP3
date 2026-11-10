@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using GestorTareas.Api;
 using GestorTareas.ControlAcceso;
+using GestorTareas.Documentos;
 using GestorTareas.GestionPermisos;
 using GestorTareas.Notificaciones;
 using GestorTareas.Negocio;
@@ -22,6 +23,10 @@ if (string.IsNullOrWhiteSpace(cadenaConexion))
 
 builder.Services.AddDbContext<ContextoControlAcceso>(opciones =>
     opciones.UseSqlServer(cadenaConexion));
+builder.Services.AddDbContext<ContextoDocumentos>(opciones =>
+    opciones.UseSqlServer(
+        cadenaConexion,
+        opcionesSql => opcionesSql.MigrationsHistoryTable("__EFMigrationsHistory_Documentos")));
 builder.Services.AddDbContext<ContextoGestionPermisos>(opciones =>
     opciones.UseSqlServer(
         cadenaConexion,
@@ -35,6 +40,13 @@ builder.Services.AddDbContext<NegocioDbContext>(opciones =>
         cadenaConexion,
         opcionesSql => opcionesSql.MigrationsHistoryTable("__EFMigrationsHistory_Negocio")));
 builder.Services.AddScoped<IColaCorreos, ColaCorreos>();
+
+string? rutaDocumentos = builder.Configuration["DOCUMENTOS_RUTA"];
+if (string.IsNullOrWhiteSpace(rutaDocumentos))
+{
+    rutaDocumentos = "datos/documentos";
+}
+builder.Services.AddSingleton(new OpcionesAlmacenamientoDocumentos(rutaDocumentos));
 
 var urlBase = builder.Configuration["APP_URL_BASE"];
 if (string.IsNullOrWhiteSpace(urlBase))
@@ -52,6 +64,7 @@ builder.Services.AddScoped<ServicioAutenticacion>();
 builder.Services.AddScoped<InicializadorAdministrador>();
 builder.Services.AddScoped<ServicioUsuarios>();
 builder.Services.AddScoped<ServicioSolicitudesPermiso>();
+builder.Services.AddScoped<ServicioDocumentos>();
 builder.Services.AddScoped<ServicioProyectos>();
 builder.Services.AddScoped<ServicioTareas>();
 builder.Services.AddAuthentication("Token")
@@ -420,6 +433,140 @@ app.MapGet("/api/solicitudes-permisos", async (
     List<GestorTareas.GestionPermisos.Entidades.SolicitudPermiso> solicitudes =
         await servicioSolicitudesPermiso.ListarPropiasAsync(idSolicitante);
     return Results.Ok(solicitudes);
+})
+    .RequireAuthorization(Politicas.Autenticado);
+
+app.MapPost("/api/documentos", async (
+    IFormFile? archivo,
+    ClaimsPrincipal usuarioAutenticado,
+    ServicioDocumentos servicioDocumentos) =>
+{
+    if (archivo is null)
+    {
+        return Results.BadRequest(new { error = "El archivo es obligatorio." });
+    }
+
+    if (!Guid.TryParse(
+        usuarioAutenticado.FindFirstValue(ClaimTypes.NameIdentifier),
+        out Guid idUsuario))
+    {
+        return Results.BadRequest(new { error = "La identidad del usuario no es válida." });
+    }
+
+    await using Stream contenido = archivo.OpenReadStream();
+    ResultadoSubirDocumento resultado = await servicioDocumentos.SubirAsync(
+        idUsuario,
+        archivo.FileName,
+        archivo.ContentType,
+        contenido);
+
+    if (!resultado.Exito)
+    {
+        return Results.BadRequest(new { error = resultado.Error });
+    }
+
+    return Results.Created(
+        $"/api/documentos/{resultado.Documento!.Id}/descargar",
+        new
+        {
+            id = resultado.Documento.Id,
+            nombreOriginal = resultado.Documento.NombreOriginal,
+            tipoContenido = resultado.Documento.TipoContenido,
+            tamanoBytes = resultado.Documento.TamanoBytes,
+            fechaSubida = resultado.Documento.FechaSubida,
+            idUsuarioPropietario = resultado.Documento.IdUsuarioPropietario
+        });
+})
+    .RequireAuthorization(Politicas.Autenticado)
+    .DisableAntiforgery();
+
+app.MapGet("/api/documentos", async (
+    ClaimsPrincipal usuarioAutenticado,
+    ServicioDocumentos servicioDocumentos) =>
+{
+    if (!Guid.TryParse(
+        usuarioAutenticado.FindFirstValue(ClaimTypes.NameIdentifier),
+        out Guid idUsuario))
+    {
+        return Results.BadRequest(new { error = "La identidad del usuario no es válida." });
+    }
+
+    ResultadoListarDocumentos resultado = await servicioDocumentos.ListarAsync(
+        idUsuario,
+        usuarioAutenticado.IsInRole("Administrador"));
+
+    return Results.Ok(resultado.Documentos.Select(documento => new
+    {
+        id = documento.Id,
+        nombreOriginal = documento.NombreOriginal,
+        tipoContenido = documento.TipoContenido,
+        tamanoBytes = documento.TamanoBytes,
+        fechaSubida = documento.FechaSubida,
+        idUsuarioPropietario = documento.IdUsuarioPropietario
+    }));
+})
+    .RequireAuthorization(Politicas.Autenticado);
+
+app.MapGet("/api/documentos/{id:guid}/descargar", async (
+    Guid id,
+    ClaimsPrincipal usuarioAutenticado,
+    ServicioDocumentos servicioDocumentos) =>
+{
+    if (!Guid.TryParse(
+        usuarioAutenticado.FindFirstValue(ClaimTypes.NameIdentifier),
+        out Guid idUsuario))
+    {
+        return Results.BadRequest(new { error = "La identidad del usuario no es válida." });
+    }
+
+    ResultadoDescargarDocumento resultado = await servicioDocumentos.DescargarAsync(
+        idUsuario,
+        usuarioAutenticado.IsInRole("Administrador"),
+        id);
+
+    return resultado.Estado switch
+    {
+        EstadoOperacionDocumento.Exitoso => Results.File(
+            resultado.Contenido!,
+            resultado.TipoContenido!,
+            resultado.NombreOriginal!),
+        EstadoOperacionDocumento.NoEncontrado => Results.NotFound(new { error = resultado.Error }),
+        EstadoOperacionDocumento.SinPermiso => Results.Json(
+            new { error = resultado.Error },
+            statusCode: StatusCodes.Status403Forbidden),
+        EstadoOperacionDocumento.ArchivoNoDisponible => Results.Conflict(
+            new { error = resultado.Error }),
+        _ => Results.BadRequest(new { error = resultado.Error })
+    };
+})
+    .RequireAuthorization(Politicas.Autenticado);
+
+app.MapDelete("/api/documentos/{id:guid}", async (
+    Guid id,
+    ClaimsPrincipal usuarioAutenticado,
+    ServicioDocumentos servicioDocumentos) =>
+{
+    if (!Guid.TryParse(
+        usuarioAutenticado.FindFirstValue(ClaimTypes.NameIdentifier),
+        out Guid idUsuario))
+    {
+        return Results.BadRequest(new { error = "La identidad del usuario no es válida." });
+    }
+
+    ResultadoEliminarDocumento resultado = await servicioDocumentos.EliminarAsync(
+        idUsuario,
+        usuarioAutenticado.IsInRole("Administrador"),
+        id);
+
+    return resultado.Estado switch
+    {
+        EstadoOperacionDocumento.Exitoso => Results.NoContent(),
+        EstadoOperacionDocumento.NoEncontrado => Results.NotFound(new { error = resultado.Error }),
+        EstadoOperacionDocumento.SinPermiso => Results.Json(
+            new { error = resultado.Error },
+            statusCode: StatusCodes.Status403Forbidden),
+        _ => Results.BadRequest(new { error = resultado.Error })
+    };
 })
     .RequireAuthorization(Politicas.Autenticado);
 
