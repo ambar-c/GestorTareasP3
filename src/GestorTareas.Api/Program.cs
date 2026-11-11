@@ -8,6 +8,7 @@ using GestorTareas.Negocio;
 using GestorTareas.Negocio.Entidades;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Diagnostics;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -1144,6 +1145,40 @@ app.MapPost("/api/usuarios/{id}/reactivar", async (
     };
 })
     .RequireAuthorization(Politicas.Administrador);
+
+const int intentosMaximosMigraciones = 15;
+for (int intento = 1; intento <= intentosMaximosMigraciones; intento++)
+{
+    try
+    {
+        using IServiceScope alcanceMigraciones = app.Services.CreateScope();
+        await alcanceMigraciones.ServiceProvider
+            .GetRequiredService<ContextoControlAcceso>()
+            .Database.MigrateAsync();
+        await alcanceMigraciones.ServiceProvider
+            .GetRequiredService<ContextoGestionPermisos>()
+            .Database.MigrateAsync();
+        await alcanceMigraciones.ServiceProvider
+            .GetRequiredService<ContextoNotificaciones>()
+            .Database.MigrateAsync();
+        await alcanceMigraciones.ServiceProvider
+            .GetRequiredService<NegocioDbContext>()
+            .Database.MigrateAsync();
+        await alcanceMigraciones.ServiceProvider
+            .GetRequiredService<ContextoDocumentos>()
+            .Database.MigrateAsync();
+
+        break;
+    }
+    catch (SqlException) when (intento < intentosMaximosMigraciones)
+    {
+        app.Logger.LogWarning(
+            "Esperando a la base de datos (intento {Intento} de {IntentosMaximos})",
+            intento,
+            intentosMaximosMigraciones);
+        await Task.Delay(TimeSpan.FromSeconds(4));
+    }
+}
 
 string? adminNombre = Environment.GetEnvironmentVariable("ADMIN_NOMBRE");
 string? adminCorreo = Environment.GetEnvironmentVariable("ADMIN_CORREO");
