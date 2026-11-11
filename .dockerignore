@@ -1,0 +1,13 @@
+**/bin
+**/obj
+.git
+.github
+.vs
+.vscode
+tests
+docs
+datos
+*.md
+.env
+*.env
+.env.*
