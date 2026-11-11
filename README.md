@@ -55,7 +55,102 @@ erDiagram
     }
 ```
 
+## Contenedor
+
+Los comandos de esta sección son para Windows PowerShell 5.1.
+
+### 1. Requisitos
+
+Solo necesitas Git y Docker Desktop encendido. No hace falta instalar .NET ni SQL Server.
+
+### 2. Levantar el proyecto
+
+Clona el repositorio, entra en la carpeta, copia el archivo de entorno y levanta el contenedor:
+
+```powershell
+git clone <URL_DEL_REPOSITORIO>
+Set-Location GestorTareasP3
+Copy-Item .env.example .env
+docker compose up --build
+```
+
+La primera vez tarda unos minutos. SQL Server tarda cerca de 40 segundos en estar listo.
+La API responde en `http://localhost:5065`. Comprueba que `http://localhost:5065/salud`
+responde `OK`.
+
+### 3. Detenerlo
+
+```powershell
+docker compose down
+```
+
+Este comando conserva la base y los documentos en los volúmenes con nombre
+`sqlserver-datos` y `documentos-datos`. Para empezar de cero y borrar todos los datos:
+
+```powershell
+docker compose down -v
+```
+
+Usa `docker compose down -v` solo para empezar de cero.
+
+### 4. Administrador inicial
+
+El Administrador se crea al arrancar con los valores del `.env`:
+`admin.ejemplo@example.com` y `Cambiar_Esta_Clave_123`.
+
+### 5. Correos sin SMTP real
+
+Con el `.env.example` el SMTP es de ejemplo, así que los correos no salen, pero cada uno
+queda guardado en la tabla `CorreosEnCola`. Define esta función para leer el último correo
+de activación de cuenta o código de recuperación, y copia el enlace o el código:
+
+```powershell
+function UltimoCorreo {
+  docker compose exec sqlserver sh -c '/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P \"$MSSQL_SA_PASSWORD\" -d GestorTareas -y 0 -Q \"SET NOCOUNT ON; SELECT TOP 1 Cuerpo FROM CorreosEnCola ORDER BY FechaCreacion DESC\"'
+}
+```
+
+Para probar el flujo con un usuario nuevo, regístralo con `POST /api/registro`, ejecuta
+`UltimoCorreo`, abre el enlace `/api/activar?token=...` y verifica que responde
+«Cuenta activada correctamente».
+
+Para recuperar la contraseña, ejecuta `POST /api/contrasena/recuperar`, usa `UltimoCorreo`
+para ver el código y ejecuta `POST /api/contrasena/restablecer`.
+
+### 6. Pruebas de los criterios con el contenedor
+
+Las tablas «Cómo probar» de las secciones siguientes usan SSMS y `dotnet run` solo para
+consultar la base. Con el contenedor, el endpoint `GET /api/usuarios` (como Administrador)
+reemplaza a SSMS para ver quién está activo, y la función `Llamar` de la sección
+«Activación de la cuenta» sirve igual.
+
+### 7. Datos que sobreviven
+
+Sube un documento, ejecuta `docker compose down` sin `-v`, levanta otra vez con:
+
+```powershell
+docker compose up
+```
+
+Comprueba que el documento sigue en el listado y se descarga, y que los usuarios
+registrados pueden iniciar sesión.
+
+### 8. Enviador opcional
+
+Si pones un SMTP real en el `.env`, el Enviador envía los correos pendientes con:
+
+```powershell
+docker compose run --rm enviador
+```
+
+### 9. Clima
+
+Sin una clave real en `CLIMA_API_KEY`, el resumen del proyecto responde `503` y el resto
+del proyecto funciona. Consulta el detalle en «API externa».
+
 ## Cómo ejecutar
+
+La forma principal de ejecutar el proyecto es la sección «Contenedor».
 
 ### Requisitos previos
 - SDK de .NET 10.
@@ -851,6 +946,36 @@ LlamarSesion Get "/api/proyectos/$idProyecto/progreso" $null $tokenDueno
 
 Resultado esperado: el mismo `200` de antes. Los proyectos, las tareas, sus estados y la sesión se guardan en SQL Server y sobreviven al reinicio.
 
+## API externa (WeatherAPI)
+
+La integración usa **WeatherAPI** (`weatherapi.com`), un servicio con plan gratuito que
+requiere una clave. `GET /api/proyectos/{id}/resumen` combina el progreso del proyecto con
+el clima actual de su ciudad. La ciudad se asigna con `PUT /api/proyectos/{id}/ciudad`.
+
+La clave se configura en la variable `CLIMA_API_KEY`. La aplicación la lee del entorno y
+llega al contenedor desde el `.env`, que no se versiona. La clave nunca está en el código,
+el Dockerfile ni el archivo `docker-compose.yml`.
+
+Para conseguirla, crea una cuenta gratuita en `weatherapi.com`, entra en el panel de
+WeatherAPI y copia la API key. Añádela al `.env` local:
+
+```powershell
+CLIMA_API_KEY=tu_clave_de_weatherapi
+```
+
+Una respuesta correcta de `GET /api/proyectos/{id}/resumen` tiene esta forma:
+
+```json
+{"progreso":{"idProyecto":"ce4301ba-1104-42a4-96ee-2fe82e69ef41","nombre":"Proyecto clima","total":0,"pendientes":0,"enProgreso":0,"completadas":0,"canceladas":0,"porcentajeCompletado":0},"clima":{"temperatura":28.4,"humedad":81,"descripcion":"Chubasco ligero","ciudad":"Santo Domingo"}}
+```
+
+| Criterio | Cómo probar | Resultado esperado |
+|---|---|---|
+| Clave de ejemplo | Usa la clave de ejemplo de `.env.example` y consulta el resumen; consulta también `/api/proyectos/{id}/progreso` | El resumen responde `503` con «El servicio de clima no está disponible en este momento.» y `/progreso` sigue respondiendo `200` |
+| Ciudad inexistente | Asigna una ciudad que no existe con `PUT /api/proyectos/{id}/ciudad` y consulta el resumen | `503` con «No se encontró la ciudad configurada para el proyecto.» |
+| Proyecto sin ciudad | Consulta el resumen de un proyecto al que no se le ha asignado ciudad | `200` con `clima: null` |
+| Permiso de otro usuario | Consulta el resumen con la sesión de otro usuario Estándar | `403` |
+
 ## Gestión de permisos
 
 Las siguientes comprobaciones se ejecutan en otra ventana de Windows PowerShell 5.1,
@@ -1020,13 +1145,14 @@ Toda la suite se ejecuta con un solo comando desde la raíz del repositorio, tam
 dotnet test
 ```
 
-No hace falta levantar la API, Docker ni la base de datos: las pruebas usan la base en memoria (InMemory) o la entidad directamente, y cada una prepara sus propios datos (RD-12). Resultado esperado: **64 pruebas, 0 fallidas**.
+No hace falta levantar la API, Docker ni la base de datos: las pruebas usan la base en memoria (InMemory) o la entidad directamente, y cada una prepara sus propios datos (RD-12). Resultado esperado: **74 pruebas, 0 fallidas**.
 
 | Grupo | Archivo | Pruebas | Nombres |
 |---|---|---|---|
 | Gestión de permisos | `tests/GestorTareas.Pruebas/GestionPermisos/` | 29 | Empiezan por el requisito: `RF_GP_01_` a `RF_GP_07_` |
 | Máquina de estados de Tarea | `tests/GestorTareas.Pruebas/Negocio/MaquinaEstadosTareaPruebas.cs` | 32 | Empiezan por la fila de [`docs/maquina-de-estados.md`](docs/maquina-de-estados.md) que cubren: `P1_` a `P5_` (permitidas), `X1_` a `X5_` (prohibidas), `C1_` a `C4_` (condiciones) y `EstadoTerminal_` |
 | Integración con Gestión de permisos | `tests/GestorTareas.Pruebas/Integracion/IntegracionNegocioPermisosPruebas.cs` | 3 | `RF_NEG_06_`: usan `ServicioProyectos` y `ServicioSolicitudesPermiso` reales, sin dobles ni API |
+| Manejador de documentos | `tests/GestorTareas.Pruebas/Documentos/ServicioDocumentosPruebas.cs` | 10 | `RF-DOC-01` a `RF-DOC-04` |
 
 Para ejecutar un solo grupo:
 
