@@ -45,6 +45,7 @@ builder.Services.AddSingleton(new OpcionesClima(builder.Configuration["CLIMA_API
 builder.Services.AddHttpClient<IServicioClima, ServicioClima>(cliente =>
     cliente.Timeout = TimeSpan.FromSeconds(5));
 builder.Services.AddScoped<IColaCorreos, ColaCorreos>();
+builder.Services.AddScoped<ServicioNotificaciones>();
 
 string? rutaDocumentos = builder.Configuration["DOCUMENTOS_RUTA"];
 if (string.IsNullOrWhiteSpace(rutaDocumentos))
