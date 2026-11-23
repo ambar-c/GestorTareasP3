@@ -1241,6 +1241,37 @@ app.MapGet("/api/notificaciones", async (
 })
     .RequireAuthorization(Politicas.Autenticado);
 
+app.MapGet("/api/correos", async (ContextoNotificaciones contexto) =>
+{
+    var correos = await contexto.CorreosEnCola
+        .OrderByDescending(correo => correo.FechaCreacion)
+        .Select(correo => new
+        {
+            correo.Id,
+            correo.Destinatario,
+            correo.Asunto,
+            correo.Estado,
+            correo.Intentos,
+            correo.FechaCreacion,
+            correo.FechaEnvio,
+            correo.UltimoError
+        })
+        .ToListAsync();
+
+    return Results.Ok(correos.Select(correo => new
+    {
+        id = correo.Id,
+        destinatario = correo.Destinatario,
+        asunto = correo.Asunto,
+        estado = correo.Estado.ToString(),
+        intentos = correo.Intentos,
+        fechaCreacion = correo.FechaCreacion,
+        fechaEnvio = correo.FechaEnvio,
+        ultimoError = correo.UltimoError
+    }));
+})
+    .RequireAuthorization(Politicas.Administrador);
+
 app.MapPost("/api/notificaciones/{id:guid}/leer", async (
     Guid id,
     ClaimsPrincipal usuarioAutenticado,
