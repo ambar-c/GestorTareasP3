@@ -116,9 +116,11 @@ internal static class Programa
             }
             catch (Exception ex)
             {
-                correo.Estado = EstadoCorreo.Pendiente;
                 correo.Intentos++;
-                correo.UltimoError = ex.GetType().Name[..Math.Min(500, ex.GetType().Name.Length)];
+                correo.Estado = correo.Intentos >= ConstantesNotificaciones.MaximosIntentosCorreo
+                    ? EstadoCorreo.Fallido
+                    : EstadoCorreo.Pendiente;
+                correo.UltimoError = ex.Message[..Math.Min(500, ex.Message.Length)];
 
                 try
                 {
