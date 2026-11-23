@@ -96,7 +96,7 @@ Práctica 5. Estos criterios los escribí antes de delegar al agente. Cada uno s
 **CA-REP-02 — Reporte de negocio que responde una pregunta** (RF-REP-02, RF-REP-03)
 - Dado: varios proyectos con tareas en distintos estados y prioridades.
 - Cuando: el Administrador ejecuta `GET /api/reportes/progreso-tareas`.
-- Entonces: responde "¿cuántas tareas tiene cada proyecto por estado y qué porcentaje está completado?": una fila por proyecto con total de tareas, total por estado y porcentaje de tareas Completadas. Hay menos filas que tareas.
+- Entonces: responde "¿cuántas tareas tiene cada proyecto por estado y qué porcentaje está completado?": una fila por proyecto con total de tareas, total por estado y porcentaje de tareas Completadas calculado sobre el total de tareas del proyecto, incluyendo las Canceladas, redondeado a un decimal. Hay menos filas que tareas.
 
 **CA-REP-03 — Los reportes respetan el rol** (RF-REP-04)
 - Dado: Estándar A y Estándar B con solicitudes de permiso y proyectos propios.
@@ -104,9 +104,9 @@ Práctica 5. Estos criterios los escribí antes de delegar al agente. Cada uno s
 - Entonces: el reporte de solicitudes solo cuenta las solicitudes de Estándar A, y el de progreso solo incluye los proyectos que Estándar A creó. Ningún total ni nombre de proyecto de Estándar B aparece.
 
 **CA-REP-04 — Filtro por rango de fechas** (RF-REP-05)
-- Dado: datos creados en dos días distintos (usando la fecha de creación).
+- Dado: solicitudes y tareas creadas en dos días distintos, usando `FechaCreacion` de las solicitudes para el reporte de solicitudes y `FechaCreacion` de las tareas para el reporte de progreso.
 - Cuando: se ejecuta cada reporte con `?desde=YYYY-MM-DD&hasta=YYYY-MM-DD` para dos rangos distintos que contienen datos diferentes.
-- Entonces: los resultados de los dos rangos son distintos. Un rango sin datos devuelve una lista vacía, no un error. Si `desde` es posterior a `hasta`, responde `400`.
+- Entonces: el reporte de solicitudes filtra por la fecha de creación de las solicitudes y el reporte de progreso por la fecha de creación de las tareas. Con rango, el reporte de progreso incluye solo proyectos con al menos una tarea dentro del rango y calcula sus conteos usando únicamente esas tareas; sin rango incluye todos los proyectos del alcance, incluso los que no tienen tareas. Los resultados de los dos rangos son distintos. Un rango sin datos devuelve una lista vacía, no un error. Si `desde` es posterior a `hasta`, responde `400`.
 
 **CA-REP-05 — Los reportes no devuelven listados** (RF-REP-03)
 - Dado: cualquier conjunto de datos con más de un registro por grupo.

@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Globalization;
 using GestorTareas.Api;
 using GestorTareas.ControlAcceso;
 using GestorTareas.Documentos;
@@ -1241,6 +1242,161 @@ app.MapGet("/api/notificaciones", async (
 })
     .RequireAuthorization(Politicas.Autenticado);
 
+app.MapGet("/api/reportes/solicitudes-permiso", async (
+    ClaimsPrincipal usuarioAutenticado,
+    string? desde,
+    string? hasta,
+    ContextoGestionPermisos contexto) =>
+{
+    if (!RangoFechasReportes.IntentarObtener(
+        desde,
+        hasta,
+        out DateTime? fechaDesde,
+        out DateTime? fechaHasta,
+        out string? error))
+    {
+        return Results.BadRequest(new { error });
+    }
+
+    if (!Guid.TryParse(
+        usuarioAutenticado.FindFirstValue(ClaimTypes.NameIdentifier),
+        out Guid idUsuario))
+    {
+        return Results.BadRequest(new { error = "La identidad del usuario no es válida." });
+    }
+
+    IQueryable<GestorTareas.GestionPermisos.Entidades.SolicitudPermiso> solicitudes =
+        contexto.SolicitudesPermiso.AsNoTracking();
+
+    if (!usuarioAutenticado.IsInRole("Administrador"))
+    {
+        solicitudes = solicitudes.Where(solicitud => solicitud.IdSolicitante == idUsuario);
+    }
+
+    if (fechaDesde.HasValue)
+    {
+        solicitudes = solicitudes.Where(solicitud => solicitud.FechaCreacion >= fechaDesde.Value);
+    }
+
+    if (fechaHasta.HasValue)
+    {
+        solicitudes = solicitudes.Where(solicitud => solicitud.FechaCreacion < fechaHasta.Value);
+    }
+
+    var grupos = await solicitudes
+        .GroupBy(solicitud => new
+        {
+            Anio = solicitud.FechaCreacion.Year,
+            Mes = solicitud.FechaCreacion.Month,
+            solicitud.Estado
+        })
+        .Select(grupo => new
+        {
+            grupo.Key.Anio,
+            grupo.Key.Mes,
+            grupo.Key.Estado,
+            Total = grupo.Count()
+        })
+        .OrderBy(grupo => grupo.Anio)
+        .ThenBy(grupo => grupo.Mes)
+        .ThenBy(grupo => grupo.Estado)
+        .ToListAsync();
+
+    return Results.Ok(grupos.Select(grupo => new
+    {
+        periodo = $"{grupo.Anio:D4}-{grupo.Mes:D2}",
+        estado = grupo.Estado.ToString(),
+        total = grupo.Total
+    }));
+})
+    .RequireAuthorization(Politicas.Autenticado);
+
+app.MapGet("/api/reportes/progreso-tareas", async (
+    ClaimsPrincipal usuarioAutenticado,
+    string? desde,
+    string? hasta,
+    NegocioDbContext contexto) =>
+{
+    if (!RangoFechasReportes.IntentarObtener(
+        desde,
+        hasta,
+        out DateTime? fechaDesde,
+        out DateTime? fechaHasta,
+        out string? error))
+    {
+        return Results.BadRequest(new { error });
+    }
+
+    if (!Guid.TryParse(
+        usuarioAutenticado.FindFirstValue(ClaimTypes.NameIdentifier),
+        out Guid idUsuario))
+    {
+        return Results.BadRequest(new { error = "La identidad del usuario no es válida." });
+    }
+
+    IQueryable<Proyecto> proyectos = contexto.Proyectos.AsNoTracking();
+
+    if (!usuarioAutenticado.IsInRole("Administrador"))
+    {
+        proyectos = proyectos.Where(proyecto => proyecto.UsuarioCreadorId == idUsuario);
+    }
+
+    IQueryable<Tarea> tareas = contexto.Tareas.AsNoTracking();
+
+    if (fechaDesde.HasValue)
+    {
+        tareas = tareas.Where(tarea => tarea.FechaCreacion >= fechaDesde.Value);
+    }
+
+    if (fechaHasta.HasValue)
+    {
+        tareas = tareas.Where(tarea => tarea.FechaCreacion < fechaHasta.Value);
+    }
+
+    if (fechaDesde.HasValue || fechaHasta.HasValue)
+    {
+        proyectos = proyectos.Where(proyecto => tareas.Any(tarea => tarea.ProyectoId == proyecto.Id));
+    }
+
+    var progreso = await proyectos
+        .Select(proyecto => new
+        {
+            idProyecto = proyecto.Id,
+            nombre = proyecto.Nombre,
+            total = tareas.Count(tarea => tarea.ProyectoId == proyecto.Id),
+            pendientes = tareas.Count(tarea =>
+                tarea.ProyectoId == proyecto.Id && tarea.Estado == EstadoTarea.Pendiente),
+            enProgreso = tareas.Count(tarea =>
+                tarea.ProyectoId == proyecto.Id && tarea.Estado == EstadoTarea.EnProgreso),
+            completadas = tareas.Count(tarea =>
+                tarea.ProyectoId == proyecto.Id && tarea.Estado == EstadoTarea.Completada),
+            canceladas = tareas.Count(tarea =>
+                tarea.ProyectoId == proyecto.Id && tarea.Estado == EstadoTarea.Cancelada)
+        })
+        .OrderBy(proyecto => proyecto.nombre)
+        .ToListAsync();
+
+    return Results.Ok(progreso.Select(proyecto =>
+    {
+        decimal porcentajeCompletado = proyecto.total == 0
+            ? 0.0m
+            : Math.Round((decimal)proyecto.completadas * 100m / proyecto.total, 1);
+
+        return new
+        {
+            idProyecto = proyecto.idProyecto,
+            nombre = proyecto.nombre,
+            total = proyecto.total,
+            pendientes = proyecto.pendientes,
+            enProgreso = proyecto.enProgreso,
+            completadas = proyecto.completadas,
+            canceladas = proyecto.canceladas,
+            porcentajeCompletado
+        };
+    }));
+})
+    .RequireAuthorization(Politicas.Autenticado);
+
 app.MapGet("/api/correos", async (ContextoNotificaciones contexto) =>
 {
     var correos = await contexto.CorreosEnCola
@@ -1465,4 +1621,61 @@ public sealed record RespuestaComentario(
         comentario.UsuarioId,
         comentario.Texto,
         comentario.FechaCreacion);
+}
+
+public static class RangoFechasReportes
+{
+    public static bool IntentarObtener(
+        string? desde,
+        string? hasta,
+        out DateTime? fechaDesde,
+        out DateTime? fechaHasta,
+        out string? error)
+    {
+        fechaDesde = null;
+        fechaHasta = null;
+        error = null;
+
+        DateOnly? fechaInicial = null;
+        if (!string.IsNullOrWhiteSpace(desde))
+        {
+            if (!DateOnly.TryParseExact(
+                desde,
+                "yyyy-MM-dd",
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.None,
+                out DateOnly fecha))
+            {
+                error = "El parámetro desde debe tener el formato YYYY-MM-DD.";
+                return false;
+            }
+
+            fechaInicial = fecha;
+            fechaDesde = fecha.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
+        }
+
+        if (!string.IsNullOrWhiteSpace(hasta))
+        {
+            if (!DateOnly.TryParseExact(
+                hasta,
+                "yyyy-MM-dd",
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.None,
+                out DateOnly fecha))
+            {
+                error = "El parámetro hasta debe tener el formato YYYY-MM-DD.";
+                return false;
+            }
+
+            fechaHasta = fecha.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc).AddDays(1);
+
+            if (fechaInicial.HasValue && fechaInicial.Value > fecha)
+            {
+                error = "El parámetro desde no puede ser posterior a hasta.";
+                return false;
+            }
+        }
+
+        return true;
+    }
 }
