@@ -155,6 +155,33 @@ public sealed class ServicioUsuarios(
             .ToListAsync();
     }
 
+    public Task<string?> ObtenerCorreoAsync(Guid idUsuario)
+    {
+        return contexto.Usuarios
+            .AsNoTracking()
+            .Where(usuario => usuario.Id == idUsuario)
+            .Select(usuario => (string?)usuario.Correo)
+            .SingleOrDefaultAsync();
+    }
+
+    public Task<List<UsuarioResumen>> ListarAdministradoresActivosAsync()
+    {
+        return contexto.Usuarios
+            .AsNoTracking()
+            .Where(usuario => usuario.Rol == Rol.Administrador
+                && usuario.Activo
+                && !usuario.Desactivado)
+            .OrderBy(usuario => usuario.Correo)
+            .Select(usuario => new UsuarioResumen(
+                usuario.Id,
+                usuario.Nombre,
+                usuario.Correo,
+                usuario.Rol,
+                usuario.Activo,
+                usuario.Desactivado))
+            .ToListAsync();
+    }
+
     public async Task<ResultadoRestablecimientoForzado> ForzarRestablecimientoAsync(
         Guid idAdministrador,
         Guid idUsuario)

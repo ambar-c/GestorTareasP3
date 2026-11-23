@@ -45,6 +45,7 @@ builder.Services.AddSingleton(new OpcionesClima(builder.Configuration["CLIMA_API
 builder.Services.AddHttpClient<IServicioClima, ServicioClima>(cliente =>
     cliente.Timeout = TimeSpan.FromSeconds(5));
 builder.Services.AddScoped<IColaCorreos, ColaCorreos>();
+builder.Services.AddScoped<ServicioNotificaciones>();
 
 string? rutaDocumentos = builder.Configuration["DOCUMENTOS_RUTA"];
 if (string.IsNullOrWhiteSpace(rutaDocumentos))
@@ -321,7 +322,9 @@ app.MapPut("/api/contrasena", async (
 app.MapPost("/api/solicitudes-permisos", async (
     SolicitudCrearPermiso? solicitud,
     ClaimsPrincipal usuarioAutenticado,
-    ServicioSolicitudesPermiso servicioSolicitudesPermiso) =>
+    ServicioSolicitudesPermiso servicioSolicitudesPermiso,
+    ServicioUsuarios servicioUsuarios,
+    ServicioNotificaciones servicioNotificaciones) =>
 {
     if (solicitud is null)
     {
@@ -339,11 +342,29 @@ app.MapPost("/api/solicitudes-permisos", async (
         idSolicitante,
         solicitud.Permiso);
 
-    return resultado.Exito
-        ? Results.Created(
-            $"/api/solicitudes-permisos/{resultado.Solicitud!.Id}",
-            resultado.Solicitud)
-        : Results.BadRequest(new { error = resultado.Error });
+    if (!resultado.Exito)
+    {
+        return Results.BadRequest(new { error = resultado.Error });
+    }
+
+    List<UsuarioResumen> administradores =
+        await servicioUsuarios.ListarAdministradoresActivosAsync();
+    string nombreSolicitante = usuarioAutenticado.FindFirstValue(ClaimTypes.Name)
+        ?? "Un usuario";
+    string mensaje = $"{nombreSolicitante} solicitó el permiso {solicitud.Permiso}.";
+
+    foreach (UsuarioResumen administrador in administradores)
+    {
+        await servicioNotificaciones.NotificarAsync(
+            administrador.Id,
+            administrador.Correo,
+            "Nueva solicitud de permiso",
+            mensaje);
+    }
+
+    return Results.Created(
+        $"/api/solicitudes-permisos/{resultado.Solicitud!.Id}",
+        resultado.Solicitud);
 })
     .RequireAuthorization(Politicas.Autenticado);
 
@@ -359,7 +380,9 @@ app.MapGet("/api/solicitudes-permisos/pendientes", async (
 app.MapPost("/api/solicitudes-permisos/{id:guid}/aprobar", async (
     Guid id,
     ClaimsPrincipal administrador,
-    ServicioSolicitudesPermiso servicioSolicitudesPermiso) =>
+    ServicioSolicitudesPermiso servicioSolicitudesPermiso,
+    ServicioUsuarios servicioUsuarios,
+    ServicioNotificaciones servicioNotificaciones) =>
 {
     if (!Guid.TryParse(
         administrador.FindFirstValue(ClaimTypes.NameIdentifier),
@@ -370,6 +393,20 @@ app.MapPost("/api/solicitudes-permisos/{id:guid}/aprobar", async (
 
     ResultadoResolucionSolicitudPermiso resultado =
         await servicioSolicitudesPermiso.AprobarAsync(id, idAdministrador);
+
+    if (resultado.Estado == EstadoResolucionSolicitudPermiso.Exitoso)
+    {
+        string? correo = await servicioUsuarios.ObtenerCorreoAsync(
+            resultado.Solicitud!.IdSolicitante);
+        if (correo is not null)
+        {
+            await servicioNotificaciones.NotificarAsync(
+                resultado.Solicitud.IdSolicitante,
+                correo,
+                "Solicitud aprobada",
+                $"Tu solicitud del permiso {resultado.Solicitud.PermisoSolicitado} fue aprobada.");
+        }
+    }
 
     return resultado.Estado switch
     {
@@ -390,7 +427,9 @@ app.MapPost("/api/solicitudes-permisos/{id:guid}/rechazar", async (
     Guid id,
     SolicitudRechazarPermiso? solicitud,
     ClaimsPrincipal administrador,
-    ServicioSolicitudesPermiso servicioSolicitudesPermiso) =>
+    ServicioSolicitudesPermiso servicioSolicitudesPermiso,
+    ServicioUsuarios servicioUsuarios,
+    ServicioNotificaciones servicioNotificaciones) =>
 {
     if (solicitud is null)
     {
@@ -406,6 +445,20 @@ app.MapPost("/api/solicitudes-permisos/{id:guid}/rechazar", async (
 
     ResultadoResolucionSolicitudPermiso resultado =
         await servicioSolicitudesPermiso.RechazarAsync(id, idAdministrador, solicitud.Motivo);
+
+    if (resultado.Estado == EstadoResolucionSolicitudPermiso.Exitoso)
+    {
+        string? correo = await servicioUsuarios.ObtenerCorreoAsync(
+            resultado.Solicitud!.IdSolicitante);
+        if (correo is not null)
+        {
+            await servicioNotificaciones.NotificarAsync(
+                resultado.Solicitud.IdSolicitante,
+                correo,
+                "Solicitud rechazada",
+                $"Tu solicitud del permiso {resultado.Solicitud.PermisoSolicitado} fue rechazada. Motivo: {resultado.Solicitud.MotivoRechazo}");
+        }
+    }
 
     return resultado.Estado switch
     {
@@ -805,7 +858,9 @@ app.MapPut("/api/tareas/{id:guid}/responsable", async (
     Guid id,
     SolicitudAsignarResponsable? solicitud,
     ClaimsPrincipal usuarioAutenticado,
-    ServicioTareas servicioTareas) =>
+    ServicioTareas servicioTareas,
+    ServicioUsuarios servicioUsuarios,
+    ServicioNotificaciones servicioNotificaciones) =>
 {
     if (solicitud is null)
     {
@@ -829,6 +884,20 @@ app.MapPut("/api/tareas/{id:guid}/responsable", async (
         usuarioAutenticado.IsInRole("Administrador"),
         id,
         solicitud.IdResponsable.Value);
+
+    if (resultado.Estado == EstadoOperacionTarea.Exitoso)
+    {
+        string? correo = await servicioUsuarios.ObtenerCorreoAsync(
+            resultado.Tarea!.UsuarioAsignadoId!.Value);
+        if (correo is not null)
+        {
+            await servicioNotificaciones.NotificarAsync(
+                resultado.Tarea.UsuarioAsignadoId.Value,
+                correo,
+                "Tarea asignada",
+                $"Se te asignó la tarea \"{resultado.Tarea.Titulo}\".");
+        }
+    }
 
     return resultado.Estado switch
     {
@@ -1146,6 +1215,93 @@ app.MapPost("/api/usuarios/{id}/reactivar", async (
 })
     .RequireAuthorization(Politicas.Administrador);
 
+app.MapGet("/api/notificaciones", async (
+    ClaimsPrincipal usuarioAutenticado,
+    bool? leida,
+    ServicioNotificaciones servicioNotificaciones) =>
+{
+    if (!Guid.TryParse(
+        usuarioAutenticado.FindFirstValue(ClaimTypes.NameIdentifier),
+        out Guid idUsuario))
+    {
+        return Results.BadRequest(new { error = "La identidad del usuario no es válida." });
+    }
+
+    List<Notificacion> notificaciones = await servicioNotificaciones.ListarAsync(
+        idUsuario,
+        leida);
+    return Results.Ok(notificaciones.Select(notificacion => new
+    {
+        id = notificacion.Id,
+        titulo = notificacion.Titulo,
+        mensaje = notificacion.Mensaje,
+        leida = notificacion.Leida,
+        fechaCreacion = notificacion.FechaCreacion
+    }));
+})
+    .RequireAuthorization(Politicas.Autenticado);
+
+app.MapPost("/api/notificaciones/{id:guid}/leer", async (
+    Guid id,
+    ClaimsPrincipal usuarioAutenticado,
+    ServicioNotificaciones servicioNotificaciones) =>
+{
+    if (!Guid.TryParse(
+        usuarioAutenticado.FindFirstValue(ClaimTypes.NameIdentifier),
+        out Guid idUsuario))
+    {
+        return Results.BadRequest(new { error = "La identidad del usuario no es válida." });
+    }
+
+    ResultadoMarcarNotificacion resultado = await servicioNotificaciones
+        .MarcarComoLeidaAsync(id, idUsuario);
+
+    return resultado.Estado switch
+    {
+        EstadoMarcarNotificacion.Exitoso => Results.Ok(new
+        {
+            id = resultado.Notificacion!.Id,
+            leida = resultado.Notificacion.Leida
+        }),
+        EstadoMarcarNotificacion.NotificacionNoEncontrada => Results.NotFound(
+            new { error = "La notificación no existe." }),
+        EstadoMarcarNotificacion.NoPerteneceAlUsuario => Results.Json(
+            new { error = "La notificación no pertenece al usuario autenticado." },
+            statusCode: StatusCodes.Status403Forbidden),
+        _ => Results.BadRequest(new { error = "No se pudo marcar la notificación." })
+    };
+})
+    .RequireAuthorization(Politicas.Autenticado);
+
+app.MapPut("/api/notificaciones/preferencias", async (
+    SolicitudPreferenciaNotificacion? solicitud,
+    ClaimsPrincipal usuarioAutenticado,
+    ServicioNotificaciones servicioNotificaciones) =>
+{
+    if (solicitud is null)
+    {
+        return Results.BadRequest(new { error = "El cuerpo de la solicitud es obligatorio." });
+    }
+
+    if (solicitud.CorreoActivo is null)
+    {
+        return Results.BadRequest(new { error = "correoActivo es obligatorio." });
+    }
+
+    if (!Guid.TryParse(
+        usuarioAutenticado.FindFirstValue(ClaimTypes.NameIdentifier),
+        out Guid idUsuario))
+    {
+        return Results.BadRequest(new { error = "La identidad del usuario no es válida." });
+    }
+
+    PreferenciaNotificacion preferencia = await servicioNotificaciones.GuardarPreferenciaAsync(
+        idUsuario,
+        solicitud.CorreoActivo.Value);
+    return Results.Ok(new { correoActivo = preferencia.CorreoActivo });
+})
+    .RequireAuthorization(Politicas.Autenticado);
+
 const int intentosMaximosMigraciones = 15;
 for (int intento = 1; intento <= intentosMaximosMigraciones; intento++)
 {
@@ -1237,6 +1393,8 @@ public sealed record SolicitudAsignarCiudad(string? Ciudad);
 public sealed record SolicitudCrearTarea(string? Titulo, Guid? IdPrioridad);
 
 public sealed record SolicitudAsignarResponsable(Guid? IdResponsable);
+
+public sealed record SolicitudPreferenciaNotificacion(bool? CorreoActivo);
 
 public sealed record SolicitudCambiarEstado(string? Estado, string? Motivo);
 
