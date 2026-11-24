@@ -16,7 +16,7 @@ flowchart LR
     GT[Gestor de tareas]
   end
   GT -->|quién es y qué rol| ACC
-  GT -->|notificar asignación/cierre de tarea| NOTI
+  GT -->|notificar asignación de tarea| NOTI
   GT -->|alimenta progreso por proyecto| REP
   GT -.->|registrar evento| AUD
 ```
@@ -206,7 +206,7 @@ Espera unos 30 segundos a que SQL Server termine de arrancar. Luego crea la base
 ```powershell
 dotnet ef database update --project src/GestorTareas.ControlAcceso
 ```
-Luego crea la tabla de la cola de correos:
+Luego crea las tablas de notificaciones y de la cola de correos:
 
 ```powershell
 dotnet ef database update --project src/GestorTareas.Notificaciones
@@ -326,6 +326,8 @@ VALUES (NEWID(), 'TU_CORREO_AQUI', 'Prueba del Enviador', 'Hola, este es un corr
 | La operación no depende del servidor SMTP (RF-NOT-08) | Inserta otro correo, ejecuta `$env:SMTP_HOST = "servidor.invalido"` y corre el Enviador | `fallidos 1`. En SSMS, `SELECT Estado, Intentos, UltimoError FROM CorreosEnCola` muestra el correo con `Estado = 0` (pendiente) e `Intentos = 1` |
 | El correo pendiente se entrega después | Restaura con `$env:SMTP_HOST = "smtp.gmail.com"` y vuelve a correr el Enviador | `enviados 1` y el correo llega |
 | Sin credenciales en el repositorio (RF-NOT-13) | Quita `SMTP_CLAVE` del entorno y corre el Enviador | Mensaje con el nombre de la variable que falta, sin datos sensibles |
+
+Tras 3 intentos fallidos el correo pasa a `Fallido` (ver «Notificaciones»).
 
 ## Activación de la cuenta
 
@@ -945,6 +947,136 @@ LlamarSesion Get "/api/proyectos/$idProyecto/progreso" $null $tokenDueno
 ```
 
 Resultado esperado: el mismo `200` de antes. Los proyectos, las tareas, sus estados y la sesión se guardan en SQL Server y sobreviven al reinicio.
+
+## Notificaciones
+
+Cada evento de negocio crea una notificación interna para el usuario afectado y encola un correo con el mismo título (el título es el asunto del correo, el detalle va en el mensaje). Si el usuario desactivó el correo en su preferencia, solo se crea la notificación interna.
+
+| Endpoint | Qué hace |
+|---|---|
+| `GET /api/notificaciones?leida=true\|false` | Lista las notificaciones del usuario autenticado, de la más reciente a la más antigua. `leida` es opcional. |
+| `POST /api/notificaciones/{id}/leer` | Marca una notificación como leída (`403` si es de otro usuario, `404` si no existe). |
+| `PUT /api/notificaciones/preferencias` | Cuerpo `{"correoActivo": true\|false}`: activa o desactiva el correo del usuario. |
+
+### Preparación
+
+Reutiliza las cuentas y variables de la sección «Módulo de negocio» (`$tokenAdmin`, `$tokenDueno`, `$tokenOtro`, `$idProyecto`, `$alta` y la función `IdDe`). El usuario «otro» hace de solicitante y de responsable. Los tokens se pierden cuando la API se reinicia: hay que volver a iniciar sesión. Obtén el Id del usuario «otro»:
+
+```powershell
+$idOtro = (Invoke-RestMethod "$base/api/yo" -Headers @{ Authorization = "Bearer $tokenOtro" }).id
+```
+
+### Cómo provocar cada evento
+
+1. **Nueva solicitud de permiso** (la reciben todos los Administradores activos). El «otro» solicita un permiso y el Administrador consulta sus notificaciones:
+
+   ```powershell
+   $idSol = IdDe (LlamarSesion Post "/api/solicitudes-permisos" '{"permiso":"CrearProyecto"}' $tokenOtro)
+   LlamarSesion Get "/api/notificaciones" $null $tokenAdmin
+   ```
+
+2. **Solicitud rechazada**, con el motivo en el mensaje (la recibe el solicitante):
+
+   ```powershell
+   LlamarSesion Post "/api/solicitudes-permisos/$idSol/rechazar" '{"motivo":"Falta justificacion"}' $tokenAdmin
+   LlamarSesion Get "/api/notificaciones" $null $tokenOtro
+   ```
+
+3. **Solicitud aprobada** (la recibe el solicitante). Se crea una solicitud nueva, porque la anterior ya fue resuelta:
+
+   ```powershell
+   $idSol = IdDe (LlamarSesion Post "/api/solicitudes-permisos" '{"permiso":"CrearProyecto"}' $tokenOtro)
+   LlamarSesion Post "/api/solicitudes-permisos/$idSol/aprobar" $null $tokenAdmin
+   LlamarSesion Get "/api/notificaciones" $null $tokenOtro
+   ```
+
+4. **Tarea asignada** (la recibe el nuevo responsable). El creador del proyecto crea una tarea y se la asigna al «otro»; quien no es el creador recibe `403` y no se genera nada:
+
+   ```powershell
+   $idTareaNotif = IdDe (LlamarSesion Post "/api/proyectos/$idProyecto/tareas" (@{ titulo = "Tarea para notificar"; idPrioridad = $alta } | ConvertTo-Json) $tokenDueno)
+   LlamarSesion Put "/api/tareas/$idTareaNotif/responsable" (@{ idResponsable = $idOtro } | ConvertTo-Json) $tokenOtro
+   LlamarSesion Put "/api/tareas/$idTareaNotif/responsable" (@{ idResponsable = $idOtro } | ConvertTo-Json) $tokenDueno
+   LlamarSesion Get "/api/notificaciones?leida=false" $null $tokenOtro
+   ```
+
+Para marcar la más reciente como leída:
+
+```powershell
+$idNot = (Invoke-RestMethod "$base/api/notificaciones" -Headers @{ Authorization = "Bearer $tokenOtro" })[0].id
+LlamarSesion Post "/api/notificaciones/$idNot/leer" $null $tokenOtro
+```
+
+Para desactivar el correo de un usuario (la notificación interna se sigue creando, pero no se encola correo):
+
+```powershell
+LlamarSesion Put "/api/notificaciones/preferencias" '{"correoActivo":false}' $tokenOtro
+```
+
+### Cola de correos
+
+Cada correo se guarda en la tabla `CorreosEnCola` con uno de estos estados:
+
+| Estado | Significado |
+|---|---|
+| `Pendiente` | Espera ser enviado o reintentado. |
+| `Enviado` | Se entregó al servidor SMTP. No se vuelve a enviar. |
+| `Fallido` | Falló en todos los intentos permitidos. No se reintenta. |
+
+El Administrador consulta el estado de la cola con `GET /api/correos`: devuelve destinatario, asunto, estado, intentos, fecha de creación, fecha de envío y último error de cada correo. No devuelve el cuerpo (puede contener enlaces de activación o códigos). Sin sesión responde `401` y a un Estándar, `403`.
+
+```powershell
+LlamarSesion Get "/api/correos" $null $tokenAdmin
+```
+
+**Ejecutar el procesador de la cola.** El Enviador procesa los correos `Pendiente` cada vez que se ejecuta y muestra un resumen:
+
+```powershell
+docker compose run --rm enviador
+# Resumen: enviados N; fallidos M.
+```
+
+Con el SMTP de ejemplo del `.env.example` los envíos fallan (ver «Contenedor», sección 5): el resumen dirá `fallidos N` y los correos cuentan un intento. Para ver correos `Enviado` hace falta un SMTP real en el `.env`. La prueba de fallo de más abajo no lo necesita.
+
+Las credenciales del servidor SMTP salen solo de las variables de entorno (`SMTP_HOST`, `SMTP_PUERTO`, `SMTP_USUARIO`, `SMTP_CLAVE`, ... del `.env`); nunca están en el código ni en el repositorio.
+
+**Provocar un fallo de envío y llegar al máximo de intentos.** Se simula un servidor SMTP apagado indicando un host que no existe solo para esa ejecución (`-e` tiene prioridad sobre el `.env`). Primero encola un correo, por ejemplo registrando un usuario nuevo (si `fallo@example.com` ya existe, responde `409` y no encola nada: usa otro correo):
+
+```powershell
+LlamarSesion Post "/api/registro" '{"nombre":"Prueba Fallo","correo":"fallo@example.com","contrasena":"Clave1234"}' $null
+docker compose run --rm -e SMTP_HOST=servidor-que-no-existe.invalid enviador
+LlamarSesion Get "/api/correos" $null $tokenAdmin
+```
+
+Cada ejecución con fallo suma un intento y guarda el mensaje del error en `ultimoError`. El máximo es de **3 intentos** (constante `MaximosIntentosCorreo`, en un solo lugar del proyecto Notificaciones): tras dos ejecuciones el correo sigue `Pendiente` con 1 y 2 intentos, y en la tercera pasa a `Fallido` con 3 intentos. Una cuarta ejecución, o una con el SMTP correcto (`docker compose run --rm enviador`), no lo toca: un correo `Fallido` no se reintenta y uno `Enviado` no se reenvía.
+
+## Reportes
+
+Los dos reportes devuelven datos agregados (grupos o totales), nunca listados de registros. Exigen sesión (`401` sin token). El Administrador ve todo; un Estándar solo ve lo suyo: sus propias solicitudes y los proyectos que él creó.
+
+| Reporte | Endpoint | Qué devuelve |
+|---|---|---|
+| Del Core | `GET /api/reportes/solicitudes-permiso` | Cantidad de solicitudes de permiso por mes (`periodo`, formato `AAAA-MM`) y `estado`. |
+| De negocio | `GET /api/reportes/progreso-tareas` | Una fila por proyecto con `total` de tareas, el total por estado (`pendientes`, `enProgreso`, `completadas`, `canceladas`) y `porcentajeCompletado`. |
+
+El porcentaje es el de tareas `Completadas` sobre las tareas no canceladas del proyecto (igual que en `GET /api/proyectos/{id}/progreso`); `total` sí incluye las canceladas. Se redondea a un decimal; un proyecto sin tareas tiene 0.
+
+**Consulta con rango de fechas.** Ambos reportes aceptan `?desde=AAAA-MM-DD&hasta=AAAA-MM-DD`; los dos parámetros son opcionales y `hasta` incluye el día completo. El rango se aplica a la fecha de creación: de las solicitudes en el reporte del Core, y de las **tareas** en el reporte de progreso (con rango, solo aparecen los proyectos con al menos una tarea dentro de él, y sus conteos usan solo esas tareas; sin rango aparecen todos los proyectos del alcance del usuario, incluso sin tareas).
+
+```powershell
+# Sin rango
+LlamarSesion Get "/api/reportes/solicitudes-permiso" $null $tokenAdmin
+LlamarSesion Get "/api/reportes/progreso-tareas" $null $tokenAdmin
+
+# Con rango (los datos creados hoy)
+$hoy = Get-Date -Format "yyyy-MM-dd"
+LlamarSesion Get "/api/reportes/solicitudes-permiso?desde=$hoy&hasta=$hoy" $null $tokenAdmin
+LlamarSesion Get "/api/reportes/progreso-tareas?desde=$hoy&hasta=$hoy" $null $tokenAdmin
+
+# Un rango sin datos devuelve una lista vacía
+LlamarSesion Get "/api/reportes/progreso-tareas?desde=2000-01-01&hasta=2000-01-02" $null $tokenAdmin
+```
+
+Para ver dos rangos con resultados distintos hace falta tener datos creados en días diferentes.
 
 ## API externa (WeatherAPI)
 
