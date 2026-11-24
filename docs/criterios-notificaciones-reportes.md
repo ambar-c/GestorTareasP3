@@ -96,7 +96,7 @@ Práctica 5. Estos criterios los escribí antes de delegar al agente. Cada uno s
 **CA-REP-02 — Reporte de negocio que responde una pregunta** (RF-REP-02, RF-REP-03)
 - Dado: varios proyectos con tareas en distintos estados y prioridades.
 - Cuando: el Administrador ejecuta `GET /api/reportes/progreso-tareas`.
-- Entonces: responde "¿cuántas tareas tiene cada proyecto por estado y qué porcentaje está completado?": una fila por proyecto con total de tareas, total por estado y porcentaje de tareas Completadas calculado sobre el total de tareas del proyecto, incluyendo las Canceladas, redondeado a un decimal. Hay menos filas que tareas.
+- Entonces: responde "¿cuántas tareas tiene cada proyecto por estado y qué porcentaje está completado?": una fila por proyecto con total de tareas, total por estado y porcentaje de tareas Completadas calculado sobre las tareas no canceladas del proyecto, redondeado a un decimal. Hay menos filas que tareas.
 
 **CA-REP-03 — Los reportes respetan el rol** (RF-REP-04)
 - Dado: Estándar A y Estándar B con solicitudes de permiso y proyectos propios.

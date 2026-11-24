@@ -1378,9 +1378,10 @@ app.MapGet("/api/reportes/progreso-tareas", async (
 
     return Results.Ok(progreso.Select(proyecto =>
     {
-        decimal porcentajeCompletado = proyecto.total == 0
-            ? 0.0m
-            : Math.Round((decimal)proyecto.completadas * 100m / proyecto.total, 1);
+        decimal porcentajeCompletado = ServicioProyectos.CalcularPorcentajeCompletado(
+            proyecto.completadas,
+            proyecto.total,
+            proyecto.canceladas);
 
         return new
         {

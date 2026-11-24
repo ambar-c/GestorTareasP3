@@ -59,6 +59,17 @@ public sealed class ServicioProyectos(
     NegocioDbContext contexto,
     ServicioSolicitudesPermiso servicioSolicitudesPermiso)
 {
+    public static decimal CalcularPorcentajeCompletado(
+        int completadas,
+        int total,
+        int canceladas)
+    {
+        int totalSinCanceladas = total - canceladas;
+        return totalSinCanceladas == 0
+            ? 0.0m
+            : Math.Round((decimal)completadas * 100m / totalSinCanceladas, 1);
+    }
+
     public async Task<ResultadoCrearProyecto> CrearAsync(
         Guid idUsuarioCreador,
         string? nombre,
@@ -135,10 +146,10 @@ public sealed class ServicioProyectos(
         int enProgreso = estados.Count(estado => estado == EstadoTarea.EnProgreso);
         int completadas = estados.Count(estado => estado == EstadoTarea.Completada);
         int canceladas = estados.Count(estado => estado == EstadoTarea.Cancelada);
-        int totalSinCanceladas = total - canceladas;
-        int porcentajeCompletado = totalSinCanceladas == 0
-            ? 0
-            : completadas * 100 / totalSinCanceladas;
+        int porcentajeCompletado = (int)CalcularPorcentajeCompletado(
+            completadas,
+            total,
+            canceladas);
 
         return new ResultadoProgresoProyecto(
             EstadoConsultaProyecto.Exitoso,
