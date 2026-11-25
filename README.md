@@ -108,10 +108,13 @@ de activación de cuenta o código de recuperación, y copia el enlace o el cód
 function UltimoCorreo {
   docker compose exec sqlserver sh -c '/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P \"$MSSQL_SA_PASSWORD\" -d GestorTareas -y 0 -Q \"SET NOCOUNT ON; SELECT TOP 1 Cuerpo FROM CorreosEnCola ORDER BY FechaCreacion DESC\"'
 }
+function Activar($enlace) {
+  Invoke-RestMethod -Uri $enlace
+}
 ```
 
 Para probar el flujo con un usuario nuevo, regístralo con `POST /api/registro`, ejecuta
-`UltimoCorreo`, abre el enlace `/api/activar?token=...` y verifica que responde
+`UltimoCorreo`, copia el enlace `/api/activar?token=...` y ejecútalo con `Activar $enlace`; verifica que responde
 «Cuenta activada correctamente».
 
 Para recuperar la contraseña, ejecuta `POST /api/contrasena/recuperar`, usa `UltimoCorreo`
@@ -622,7 +625,7 @@ Reemplaza los correos por los que usaste. El restablecimiento forzado de la secc
 Inicia sesión como el Administrador inicial y consulta `/api/yo`:
 
 ```powershell
-$tokenAdmin = (Invoke-RestMethod -Uri "$base/api/login" -Method Post -ContentType "application/json" -Body '{"correo":"admin@example.com","contrasena":"ClaveAdmin123"}').token
+$tokenAdmin = (Invoke-RestMethod -Uri "$base/api/login" -Method Post -ContentType "application/json" -Body '{"correo":"admin.ejemplo@example.com","contrasena":"Cambiar_Esta_Clave_123"}').token
 curl.exe -i "$base/api/yo" -H "Authorization: Bearer $tokenAdmin"
 ```
 
@@ -800,17 +803,16 @@ LlamarSesion Post "/api/registro" '{"nombre":"Dueno P3","correo":"dueno.p3@examp
 LlamarSesion Post "/api/registro" '{"nombre":"Otro P3","correo":"otro.p3@example.com","contrasena":"Clave1234"}'
 ```
 
-Las dos responden `201`. Actívalas con el enlace del correo o, solo para probar, en SSMS:
-
-```sql
-USE GestorTareas;
-UPDATE Usuarios SET Activo = 1 WHERE Correo IN ('dueno.p3@example.com', 'otro.p3@example.com');
-```
-
-Inicia sesión con las tres cuentas. El Administrador es el inicial de `ADMIN_CORREO` y `ADMIN_CLAVE`:
+Las dos responden `201`. Actívalas con `UltimoCorreo` y `Activar`, como se explica en «Correos sin SMTP real». Para cada cuenta, ejecuta `UltimoCorreo`, copia el enlace recibido y llama:
 
 ```powershell
-$tokenAdmin = Login $env:ADMIN_CORREO $env:ADMIN_CLAVE
+Activar $enlace
+```
+
+Inicia sesión con las tres cuentas. El Administrador inicial usa `admin.ejemplo@example.com` y `Cambiar_Esta_Clave_123`, las credenciales del modo contenedor explicadas en «Contenedor»:
+
+```powershell
+$tokenAdmin = Login "admin.ejemplo@example.com" "Cambiar_Esta_Clave_123"
 $tokenDueno = Login "dueno.p3@example.com" "Clave1234"
 $tokenOtro  = Login "otro.p3@example.com"  "Clave1234"
 $idDueno = (Invoke-RestMethod "$base/api/yo" -Headers @{ Authorization = "Bearer $tokenDueno" }).id
@@ -948,6 +950,57 @@ LlamarSesion Get "/api/proyectos/$idProyecto/progreso" $null $tokenDueno
 
 Resultado esperado: el mismo `200` de antes. Los proyectos, las tareas, sus estados y la sesión se guardan en SQL Server y sobreviven al reinicio.
 
+## Manejador de documentos
+
+Todos los endpoints exigen una sesión válida. Cada usuario consulta, descarga y elimina solo sus propios documentos; el Administrador tiene el mismo alcance por usuario que cualquier otra sesión.
+
+| Método | Endpoint | Qué hace |
+|---|---|---|
+| `POST` | `/api/documentos` | Sube un archivo multipart en el campo `archivo`. Requiere sesión. |
+| `GET` | `/api/documentos` | Lista solo los documentos del usuario que consulta, también para el Administrador. |
+| `GET` | `/api/documentos/{id}/descargar` | Descarga el contenido de un documento propio. |
+| `DELETE` | `/api/documentos/{id}` | Elimina un documento propio. |
+
+En Windows PowerShell 5.1 usa `curl.exe` para la subida: `Invoke-RestMethod` no envía multipart correctamente. El archivo de prueba se crea en `$env:TEMP`, nunca dentro del repositorio, y se borra al terminar:
+
+```powershell
+$archivo = Join-Path $env:TEMP "gestortareas-documento-prueba.txt"
+$descarga = Join-Path $env:TEMP "gestortareas-documento-descarga.txt"
+Set-Content -Path $archivo -Value "Documento de prueba" -Encoding UTF8
+
+try {
+  # Sin sesión
+  curl.exe -i "$base/api/documentos"
+
+  # Subida correcta; $tokenDueno es una sesión válida
+  $documento = (curl.exe -s -X POST "$base/api/documentos" -H "Authorization: Bearer $tokenDueno" -F "archivo=@$archivo;type=text/plain") | ConvertFrom-Json
+  $idDocumento = $documento.id
+
+  curl.exe -i "$base/api/documentos" -H "Authorization: Bearer $tokenDueno"
+  curl.exe -i "$base/api/documentos" -H "Authorization: Bearer $tokenAdmin"
+  curl.exe -i "$base/api/documentos/$idDocumento/descargar" -H "Authorization: Bearer $tokenDueno" -o $descarga
+  curl.exe -i "$base/api/documentos/$idDocumento/descargar" -H "Authorization: Bearer $tokenOtro"
+  curl.exe -i -X DELETE "$base/api/documentos/$idDocumento" -H "Authorization: Bearer $tokenOtro"
+  curl.exe -i -X DELETE "$base/api/documentos/$idDocumento" -H "Authorization: Bearer $tokenDueno"
+  curl.exe -i "$base/api/documentos/$idDocumento/descargar" -H "Authorization: Bearer $tokenDueno"
+  curl.exe -i -X POST "$base/api/documentos" -H "Authorization: Bearer $tokenDueno"
+}
+finally {
+  Remove-Item -LiteralPath $archivo, $descarga -Force -ErrorAction SilentlyContinue
+}
+```
+
+| Caso | Resultado esperado |
+|---|---|
+| Sin sesión | `401` «Se requiere iniciar sesión.» |
+| Multipart sin `archivo` | `400` «El archivo es obligatorio.» |
+| Subida correcta | `201` con `id`, `nombreOriginal`, `tipoContenido`, `tamanoBytes`, `fechaSubida` e `idUsuarioPropietario`. |
+| Descarga propia | `200` con el contenido del archivo. |
+| Descargar un documento ajeno | `403` «No tienes permiso para descargar este documento.» |
+| Borrar un documento ajeno | `403` «No tienes permiso para eliminar este documento.» |
+| Borrar el propio | `204` |
+| Borrar o descargar uno inexistente | `404` «Documento no encontrado.» |
+
 ## Notificaciones
 
 Cada evento de negocio crea una notificación interna para el usuario afectado y encola un correo con el mismo título (el título es el asunto del correo, el detalle va en el mensaje). Si el usuario desactivó el correo en su preferencia, solo se crea la notificación interna.
@@ -1061,6 +1114,7 @@ Los dos reportes devuelven datos agregados (grupos o totales), nunca listados de
 El porcentaje es el de tareas `Completadas` sobre las tareas no canceladas del proyecto (igual que en `GET /api/proyectos/{id}/progreso`); `total` sí incluye las canceladas. Se redondea a un decimal; un proyecto sin tareas tiene 0.
 
 **Consulta con rango de fechas.** Ambos reportes aceptan `?desde=AAAA-MM-DD&hasta=AAAA-MM-DD`; los dos parámetros son opcionales y `hasta` incluye el día completo. El rango se aplica a la fecha de creación: de las solicitudes en el reporte del Core, y de las **tareas** en el reporte de progreso (con rango, solo aparecen los proyectos con al menos una tarea dentro de él, y sus conteos usan solo esas tareas; sin rango aparecen todos los proyectos del alcance del usuario, incluso sin tareas).
+Las fechas del sistema se guardan en UTC; por eso el rango debe construirse con la fecha UTC. El reporte de solicitudes devuelve los estados `Aplicada` y `Rechazada`, no `Aprobada`.
 
 ```powershell
 # Sin rango
@@ -1068,7 +1122,7 @@ LlamarSesion Get "/api/reportes/solicitudes-permiso" $null $tokenAdmin
 LlamarSesion Get "/api/reportes/progreso-tareas" $null $tokenAdmin
 
 # Con rango (los datos creados hoy)
-$hoy = Get-Date -Format "yyyy-MM-dd"
+$hoy = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd")
 LlamarSesion Get "/api/reportes/solicitudes-permiso?desde=$hoy&hasta=$hoy" $null $tokenAdmin
 LlamarSesion Get "/api/reportes/progreso-tareas?desde=$hoy&hasta=$hoy" $null $tokenAdmin
 
