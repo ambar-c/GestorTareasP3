@@ -112,3 +112,9 @@ Práctica 5. Estos criterios los escribí antes de delegar al agente. Cada uno s
 - Dado: cualquier conjunto de datos con más de un registro por grupo.
 - Cuando: se ejecuta cualquiera de los dos reportes.
 - Entonces: la agregación la hace la base de datos (o una función propia del proyecto) y la respuesta no contiene los registros individuales.
+
+
+**CA-REP-06 — La lógica del reporte no vive en el endpoint** (RD-02, RD-12) — agregado en la Asignación 3 (H1)
+- Dado: el código del proyecto.
+- Cuando: reviso Program.cs.
+- Entonces: los endpoints de reportes solo validan el rango, identifican al usuario, llaman a un servicio y devuelven el resultado. Las consultas y agregaciones están en un servicio que se prueba sin levantar la API. La prueba `H1_Program_no_contiene_consultas_de_reportes` lo comprueba.
