@@ -51,3 +51,9 @@ No necesita Docker ni una base de datos real: usa una base en memoria (InMemory)
 - Nunca escribas credenciales (contraseñas, claves de API, usuario o clave de SMTP) en ningún archivo del repositorio, ni en código, ni en pruebas, ni en documentación.
 - Nunca leas, abras ni imprimas el archivo `.env`.
 - Toda configuración sensible se lee de variables de entorno. Si necesitas una variable nueva, agrégala a `.env.example` con un valor de ejemplo falso y documéntala en el README.
+
+- Los endpoints no contienen consultas, agregaciones ni reglas de negocio: solo validan la entrada, identifican al usuario y su rol, llaman a un servicio y devuelven el resultado. Cada pieza expone un servicio que se prueba sin levantar la API (RD-02, RD-12).
+
+- Toda dirección de correo se valida con ValidadorCorreo antes de encolarla. Un fallo del canal de correo nunca debe tumbar la operación de negocio ni la notificación interna (RD-07, RF-NOT-08).
+
+- Cada capa valida lo que recibe, aunque la capa anterior ya lo haya validado: la cola de correos comprueba el formato del destinatario con ValidadorCorreo y no confía en quien la llama (RD-07).

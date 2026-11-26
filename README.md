@@ -1331,7 +1331,7 @@ Toda la suite se ejecuta con un solo comando desde la raíz del repositorio, tam
 dotnet test
 ```
 
-No hace falta levantar la API, Docker ni la base de datos: las pruebas usan la base en memoria (InMemory) o la entidad directamente, y cada una prepara sus propios datos (RD-12). Resultado esperado: **74 pruebas, 0 fallidas**.
+No hace falta levantar la API, Docker ni la base de datos: las pruebas usan la base en memoria (InMemory) o la entidad directamente, y cada una prepara sus propios datos (RD-12). Resultado esperado: **85 pruebas, 0 fallidas**.
 
 | Grupo | Archivo | Pruebas | Nombres |
 |---|---|---|---|
