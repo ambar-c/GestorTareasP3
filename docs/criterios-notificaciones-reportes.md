@@ -54,6 +54,11 @@ Práctica 5. Estos criterios los escribí antes de delegar al agente. Cada uno s
 - Cuando: se genera una notificación para Estándar A.
 - Entonces: aparece en su bandeja interna y no se agrega ningún correo nuevo a la cola para ella. Al volver a activarlo, las siguientes notificaciones vuelven a generar correo.
 
+**CA-NOT-11 — Un correo inválido no tumba la notificación** (RF-NOT-06, RD-07) — agregado en la Asignación 3 (H2)
+- Dado: un usuario cuyo correo está vacío o mal formado.
+- Cuando: se genera una notificación para él.
+- Entonces: la operación de negocio termina bien, la notificación aparece en su bandeja interna y no se agrega nada a la cola de correos.
+
 ## Cola de correos
 
 **CA-COL-01 — El envío no ocurre dentro de la operación** (RF-NOT-08)
@@ -86,6 +91,11 @@ Práctica 5. Estos criterios los escribí antes de delegar al agente. Cada uno s
 - Cuando: se busca en los archivos y en todo el historial (`git log -p`) usuario o clave de SMTP reales.
 - Entonces: no aparecen. Solo existen en el `.env` local, que está en `.gitignore`; el `.env.example` tiene valores de ejemplo falsos.
 
+**CA-COL-07 — La cola solo acepta destinatarios válidos** (RF-NOT-10, RD-07) — agregado en la Asignación 3 (H3)
+- Dado: un destinatario con formato inválido ("abc", "a@", "Ana <ana@correo.com>").
+- Cuando: se intenta encolar un correo para él.
+- Entonces: la cola lo rechaza con un error controlado y no queda ningún registro. Un correo que nunca puede enviarse no consume intentos del procesador.
+
 ## Reportes
 
 **CA-REP-01 — Reporte del Core con valores agrupados** (RF-REP-01, RF-REP-03)
@@ -112,3 +122,9 @@ Práctica 5. Estos criterios los escribí antes de delegar al agente. Cada uno s
 - Dado: cualquier conjunto de datos con más de un registro por grupo.
 - Cuando: se ejecuta cualquiera de los dos reportes.
 - Entonces: la agregación la hace la base de datos (o una función propia del proyecto) y la respuesta no contiene los registros individuales.
+
+
+**CA-REP-06 — La lógica del reporte no vive en el endpoint** (RD-02, RD-12) — agregado en la Asignación 3 (H1)
+- Dado: el código del proyecto.
+- Cuando: reviso Program.cs.
+- Entonces: los endpoints de reportes solo validan el rango, identifican al usuario, llaman a un servicio y devuelven el resultado. Las consultas y agregaciones están en un servicio que se prueba sin levantar la API. La prueba `H1_Program_no_contiene_consultas_de_reportes` lo comprueba.

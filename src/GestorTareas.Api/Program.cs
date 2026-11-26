@@ -71,9 +71,11 @@ builder.Services.AddScoped<ServicioAutenticacion>();
 builder.Services.AddScoped<InicializadorAdministrador>();
 builder.Services.AddScoped<ServicioUsuarios>();
 builder.Services.AddScoped<ServicioSolicitudesPermiso>();
+builder.Services.AddScoped<ServicioReportesSolicitudes>();
 builder.Services.AddScoped<ServicioDocumentos>();
 builder.Services.AddScoped<ServicioProyectos>();
 builder.Services.AddScoped<ServicioTareas>();
+builder.Services.AddScoped<ServicioReportesProgreso>();
 builder.Services.AddAuthentication("Token")
     .AddScheme<AuthenticationSchemeOptions, ManejadorAutenticacionToken>("Token", _ => { });
 builder.Services.AddAuthorization(opciones =>
@@ -1246,7 +1248,7 @@ app.MapGet("/api/reportes/solicitudes-permiso", async (
     ClaimsPrincipal usuarioAutenticado,
     string? desde,
     string? hasta,
-    ContextoGestionPermisos contexto) =>
+    ServicioReportesSolicitudes servicioReportes) =>
 {
     if (!RangoFechasReportes.IntentarObtener(
         desde,
@@ -1265,47 +1267,16 @@ app.MapGet("/api/reportes/solicitudes-permiso", async (
         return Results.BadRequest(new { error = "La identidad del usuario no es válida." });
     }
 
-    IQueryable<GestorTareas.GestionPermisos.Entidades.SolicitudPermiso> solicitudes =
-        contexto.SolicitudesPermiso.AsNoTracking();
+    IReadOnlyList<ReporteSolicitudPermiso> resultado = await servicioReportes.ObtenerAsync(
+        idUsuario,
+        usuarioAutenticado.IsInRole("Administrador"),
+        fechaDesde,
+        fechaHasta);
 
-    if (!usuarioAutenticado.IsInRole("Administrador"))
+    return Results.Ok(resultado.Select(grupo => new
     {
-        solicitudes = solicitudes.Where(solicitud => solicitud.IdSolicitante == idUsuario);
-    }
-
-    if (fechaDesde.HasValue)
-    {
-        solicitudes = solicitudes.Where(solicitud => solicitud.FechaCreacion >= fechaDesde.Value);
-    }
-
-    if (fechaHasta.HasValue)
-    {
-        solicitudes = solicitudes.Where(solicitud => solicitud.FechaCreacion < fechaHasta.Value);
-    }
-
-    var grupos = await solicitudes
-        .GroupBy(solicitud => new
-        {
-            Anio = solicitud.FechaCreacion.Year,
-            Mes = solicitud.FechaCreacion.Month,
-            solicitud.Estado
-        })
-        .Select(grupo => new
-        {
-            grupo.Key.Anio,
-            grupo.Key.Mes,
-            grupo.Key.Estado,
-            Total = grupo.Count()
-        })
-        .OrderBy(grupo => grupo.Anio)
-        .ThenBy(grupo => grupo.Mes)
-        .ThenBy(grupo => grupo.Estado)
-        .ToListAsync();
-
-    return Results.Ok(grupos.Select(grupo => new
-    {
-        periodo = $"{grupo.Anio:D4}-{grupo.Mes:D2}",
-        estado = grupo.Estado.ToString(),
+        periodo = grupo.Periodo,
+        estado = grupo.Estado,
         total = grupo.Total
     }));
 })
@@ -1315,7 +1286,7 @@ app.MapGet("/api/reportes/progreso-tareas", async (
     ClaimsPrincipal usuarioAutenticado,
     string? desde,
     string? hasta,
-    NegocioDbContext contexto) =>
+    ServicioReportesProgreso servicioReportes) =>
 {
     if (!RangoFechasReportes.IntentarObtener(
         desde,
@@ -1334,67 +1305,23 @@ app.MapGet("/api/reportes/progreso-tareas", async (
         return Results.BadRequest(new { error = "La identidad del usuario no es válida." });
     }
 
-    IQueryable<Proyecto> proyectos = contexto.Proyectos.AsNoTracking();
+    IReadOnlyList<ReporteProgresoProyecto> resultado = await servicioReportes.ObtenerAsync(
+        idUsuario,
+        usuarioAutenticado.IsInRole("Administrador"),
+        fechaDesde,
+        fechaHasta);
 
-    if (!usuarioAutenticado.IsInRole("Administrador"))
-    {
-        proyectos = proyectos.Where(proyecto => proyecto.UsuarioCreadorId == idUsuario);
-    }
-
-    IQueryable<Tarea> tareas = contexto.Tareas.AsNoTracking();
-
-    if (fechaDesde.HasValue)
-    {
-        tareas = tareas.Where(tarea => tarea.FechaCreacion >= fechaDesde.Value);
-    }
-
-    if (fechaHasta.HasValue)
-    {
-        tareas = tareas.Where(tarea => tarea.FechaCreacion < fechaHasta.Value);
-    }
-
-    if (fechaDesde.HasValue || fechaHasta.HasValue)
-    {
-        proyectos = proyectos.Where(proyecto => tareas.Any(tarea => tarea.ProyectoId == proyecto.Id));
-    }
-
-    var progreso = await proyectos
-        .Select(proyecto => new
+    return Results.Ok(resultado.Select(proyecto => new
         {
-            idProyecto = proyecto.Id,
+            idProyecto = proyecto.IdProyecto,
             nombre = proyecto.Nombre,
-            total = tareas.Count(tarea => tarea.ProyectoId == proyecto.Id),
-            pendientes = tareas.Count(tarea =>
-                tarea.ProyectoId == proyecto.Id && tarea.Estado == EstadoTarea.Pendiente),
-            enProgreso = tareas.Count(tarea =>
-                tarea.ProyectoId == proyecto.Id && tarea.Estado == EstadoTarea.EnProgreso),
-            completadas = tareas.Count(tarea =>
-                tarea.ProyectoId == proyecto.Id && tarea.Estado == EstadoTarea.Completada),
-            canceladas = tareas.Count(tarea =>
-                tarea.ProyectoId == proyecto.Id && tarea.Estado == EstadoTarea.Cancelada)
-        })
-        .OrderBy(proyecto => proyecto.nombre)
-        .ToListAsync();
-
-    return Results.Ok(progreso.Select(proyecto =>
-    {
-        decimal porcentajeCompletado = ServicioProyectos.CalcularPorcentajeCompletado(
-            proyecto.completadas,
-            proyecto.total,
-            proyecto.canceladas);
-
-        return new
-        {
-            idProyecto = proyecto.idProyecto,
-            nombre = proyecto.nombre,
-            total = proyecto.total,
-            pendientes = proyecto.pendientes,
-            enProgreso = proyecto.enProgreso,
-            completadas = proyecto.completadas,
-            canceladas = proyecto.canceladas,
-            porcentajeCompletado
-        };
-    }));
+            total = proyecto.Total,
+            pendientes = proyecto.Pendientes,
+            enProgreso = proyecto.EnProgreso,
+            completadas = proyecto.Completadas,
+            canceladas = proyecto.Canceladas,
+            porcentajeCompletado = proyecto.PorcentajeCompletado
+        }));
 })
     .RequireAuthorization(Politicas.Autenticado);
 

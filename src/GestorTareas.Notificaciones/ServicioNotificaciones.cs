@@ -44,7 +44,8 @@ public sealed class ServicioNotificaciones(
         bool existePreferencia = await contexto.PreferenciasNotificacion
             .AnyAsync(preferencia => preferencia.UsuarioId == usuarioId);
 
-        if (!existePreferencia || correoActivo)
+        if (ValidadorCorreo.EsValido(correo)
+            && (!existePreferencia || correoActivo))
         {
             await colaCorreos.EncolarAsync(correo, titulo, mensaje);
         }
