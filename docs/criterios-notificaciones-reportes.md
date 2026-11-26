@@ -91,6 +91,11 @@ Práctica 5. Estos criterios los escribí antes de delegar al agente. Cada uno s
 - Cuando: se busca en los archivos y en todo el historial (`git log -p`) usuario o clave de SMTP reales.
 - Entonces: no aparecen. Solo existen en el `.env` local, que está en `.gitignore`; el `.env.example` tiene valores de ejemplo falsos.
 
+**CA-COL-07 — La cola solo acepta destinatarios válidos** (RF-NOT-10, RD-07) — agregado en la Asignación 3 (H3)
+- Dado: un destinatario con formato inválido ("abc", "a@", "Ana <ana@correo.com>").
+- Cuando: se intenta encolar un correo para él.
+- Entonces: la cola lo rechaza con un error controlado y no queda ningún registro. Un correo que nunca puede enviarse no consume intentos del procesador.
+
 ## Reportes
 
 **CA-REP-01 — Reporte del Core con valores agrupados** (RF-REP-01, RF-REP-03)

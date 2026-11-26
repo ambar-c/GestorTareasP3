@@ -14,6 +14,13 @@ public class ColaCorreos(ContextoNotificaciones contexto) : IColaCorreos
             throw new ArgumentException("El destinatario no puede exceder 254 caracteres.", nameof(destinatario));
         }
 
+        if (!ValidadorCorreo.EsValido(destinatario))
+        {
+            throw new ArgumentException(
+                "El destinatario no tiene un formato de correo válido.",
+                nameof(destinatario));
+        }
+
         if (string.IsNullOrWhiteSpace(asunto))
         {
             throw new ArgumentException("El asunto no puede estar vacío.", nameof(asunto));
