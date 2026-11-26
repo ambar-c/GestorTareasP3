@@ -54,6 +54,11 @@ Práctica 5. Estos criterios los escribí antes de delegar al agente. Cada uno s
 - Cuando: se genera una notificación para Estándar A.
 - Entonces: aparece en su bandeja interna y no se agrega ningún correo nuevo a la cola para ella. Al volver a activarlo, las siguientes notificaciones vuelven a generar correo.
 
+**CA-NOT-11 — Un correo inválido no tumba la notificación** (RF-NOT-06, RD-07) — agregado en la Asignación 3 (H2)
+- Dado: un usuario cuyo correo está vacío o mal formado.
+- Cuando: se genera una notificación para él.
+- Entonces: la operación de negocio termina bien, la notificación aparece en su bandeja interna y no se agrega nada a la cola de correos.
+
 ## Cola de correos
 
 **CA-COL-01 — El envío no ocurre dentro de la operación** (RF-NOT-08)
